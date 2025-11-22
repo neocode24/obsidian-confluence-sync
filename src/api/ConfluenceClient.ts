@@ -1,7 +1,7 @@
 import { Notice, requestUrl } from 'obsidian';
 import * as http from 'http';
 import * as crypto from 'crypto';
-import { ConfluencePage, PageSearchResult } from '../types/confluence';
+import { ConfluencePage, PageSearchResult, Attachment } from '../types/confluence';
 import {
 	MCPConnectionError,
 	OAuthError,
@@ -470,5 +470,116 @@ export class ConfluenceClient {
 					attachments: []
 				};
 			});
+	}
+
+	/**
+	 * Get attachments for a Confluence page
+	 * @param pageId Confluence page ID
+	 * @returns Array of attachments
+	 */
+	async getAttachments(pageId: string): Promise<Attachment[]> {
+		if (!this.currentTenant?.cloudId) {
+			throw new MCPConnectionError('Tenant not initialized or cloudId missing');
+		}
+
+		if (!this.isConnected()) {
+			throw new OAuthError('Not authenticated. Please connect to Confluence first.');
+		}
+
+		try {
+			const accessToken = await this.getAccessToken();
+			const url = `https://api.atlassian.com/ex/confluence/${this.currentTenant.cloudId}/rest/api/content/${pageId}/child/attachment`;
+
+			console.log(`[Confluence] Fetching attachments for page: ${pageId}`);
+
+			const response = await requestUrl({
+				url,
+				method: 'GET',
+				headers: {
+					Authorization: `Bearer ${accessToken}`,
+					Accept: 'application/json'
+				}
+			});
+
+			const data = response.json;
+			const attachments = data.results || [];
+
+			console.log(`[Confluence] Found ${attachments.length} attachments`);
+
+			return attachments.map((att: any) => ({
+				id: att.id,
+				title: att.title,
+				mediaType: att.metadata?.mediaType || 'application/octet-stream',
+				fileSize: att.extensions?.fileSize || 0,
+				downloadUrl: att._links?.download || '',
+				pageId: pageId
+			}));
+		} catch (error: any) {
+			console.error('[Confluence] Failed to fetch attachments:', error);
+
+			if (error.status === 401) {
+				throw new OAuthError('Authentication failed');
+			}
+
+			if (error.status === 403) {
+				throw new PermissionError('Insufficient permissions to access attachments');
+			}
+
+			if (error.status === 404) {
+				throw new ConfluenceAPIError('Page not found', 404);
+			}
+
+			throw new ConfluenceAPIError(
+				`Failed to fetch attachments: ${error.message}`,
+				error.status || 500
+			);
+		}
+	}
+
+	/**
+	 * Download attachment binary data
+	 * @param downloadUrl Attachment download URL (relative path)
+	 * @returns ArrayBuffer containing file data
+	 */
+	async downloadAttachment(downloadUrl: string): Promise<ArrayBuffer> {
+		if (!this.currentTenant) {
+			throw new MCPConnectionError('No active tenant connection');
+		}
+
+		if (!this.isConnected()) {
+			throw new OAuthError('Not authenticated. Please connect to Confluence first.');
+		}
+
+		try {
+			const accessToken = await this.getAccessToken();
+			// Download URL is relative, construct full URL
+			const fullUrl = `${this.currentTenant.url}${downloadUrl}`;
+
+			console.log(`[Confluence] Downloading attachment: ${downloadUrl}`);
+
+			const response = await requestUrl({
+				url: fullUrl,
+				method: 'GET',
+				headers: {
+					Authorization: `Bearer ${accessToken}`
+				}
+			});
+
+			return response.arrayBuffer;
+		} catch (error: any) {
+			console.error('[Confluence] Failed to download attachment:', error);
+
+			if (error.status === 401) {
+				throw new OAuthError('Authentication failed');
+			}
+
+			if (error.status === 404) {
+				throw new ConfluenceAPIError('Attachment not found', 404);
+			}
+
+			throw new NetworkError(
+				`Failed to download attachment: ${error.message}`
+			);
+		}
 	}
 }

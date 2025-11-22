@@ -2,7 +2,9 @@ import TurndownService from 'turndown';
 import { ConfluencePage } from '../types/confluence';
 import { PlantUMLParser } from './PlantUMLParser';
 import { DrawioParser } from './DrawioParser';
+import { AttachmentDownloader } from './AttachmentDownloader';
 import { FileManager } from '../utils/FileManager';
+import { ConfluenceClient } from '../api/ConfluenceClient';
 
 /**
  * Confluence Storage Format HTML을 Obsidian 호환 마크다운으로 변환
@@ -74,11 +76,19 @@ export class MarkdownConverter {
   /**
    * Confluence 페이지를 마크다운으로 변환
    * @param page Confluence 페이지 객체
-   * @param pageSlug 페이지 슬러그 (Draw.io 파일명 생성용)
-   * @param fileManager FileManager 인스턴스 (Draw.io 파일 저장용, optional)
+   * @param pageSlug 페이지 슬러그 (파일명 생성용)
+   * @param fileManager FileManager 인스턴스 (파일 저장용, optional)
+   * @param confluenceClient ConfluenceClient 인스턴스 (첨부파일 다운로드용, optional)
+   * @param onAttachmentProgress 첨부파일 다운로드 진행률 콜백
    * @returns 변환된 마크다운 문자열
    */
-  async convertPage(page: ConfluencePage, pageSlug?: string, fileManager?: FileManager): Promise<string> {
+  async convertPage(
+    page: ConfluencePage,
+    pageSlug?: string,
+    fileManager?: FileManager,
+    confluenceClient?: ConfluenceClient,
+    onAttachmentProgress?: (current: number, total: number) => void
+  ): Promise<string> {
     if (!page.content || page.content.trim() === '') {
       return '';
     }
@@ -117,6 +127,20 @@ export class MarkdownConverter {
       // 5. Draw.io 플레이스홀더를 임베딩 코드로 복원
       if (drawioFilenames.length > 0) {
         markdown = this.drawioParser.restorePlaceholders(markdown, drawioFilenames);
+      }
+
+      // 6. 첨부파일 다운로드 및 URL 변환
+      if (pageSlug && fileManager && confluenceClient) {
+        const attachmentDownloader = new AttachmentDownloader(confluenceClient, fileManager);
+        const urlToPathMap = await attachmentDownloader.downloadAttachments(
+          page.id,
+          pageSlug,
+          onAttachmentProgress
+        );
+
+        if (urlToPathMap.size > 0) {
+          markdown = attachmentDownloader.replaceAttachmentUrls(markdown, urlToPathMap);
+        }
       }
 
       return markdown.trim();

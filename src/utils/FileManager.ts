@@ -209,4 +209,84 @@ export class FileManager {
       );
     }
   }
+
+  /**
+   * 첨부파일(바이너리)을 attachments 폴더에 저장
+   * @param filename 파일명
+   * @param data 파일 데이터 (ArrayBuffer)
+   * @param pageSlug 페이지 슬러그 (폴더명으로 사용)
+   * @returns 저장된 파일의 상대 경로
+   */
+  async writeAttachment(filename: string, data: ArrayBuffer, pageSlug: string): Promise<string> {
+    try {
+      // Path traversal 공격 방지
+      if (filename.includes('../') || filename.includes('..\\') || pageSlug.includes('../') || pageSlug.includes('..\\')) {
+        throw new FileWriteError(
+          'Invalid filename or pageSlug: path traversal detected',
+          { filename, pageSlug }
+        );
+      }
+
+      const attachmentFolder = `confluence/attachments/${pageSlug}`;
+      await this.ensureFolderExists(attachmentFolder);
+
+      // 파일명 중복 방지
+      const uniqueFilename = await this.ensureUniqueAttachmentFilename(filename, attachmentFolder);
+      const filePath = `${attachmentFolder}/${uniqueFilename}`;
+
+      // ArrayBuffer를 Uint8Array로 변환
+      const uint8Array = new Uint8Array(data);
+
+      // 파일 존재 여부 확인
+      const existingFile = this.vault.getAbstractFileByPath(filePath);
+
+      if (existingFile instanceof TFile) {
+        // 기존 파일 덮어쓰기
+        await this.vault.modifyBinary(existingFile, uint8Array);
+      } else {
+        // 신규 파일 생성
+        await this.vault.createBinary(filePath, uint8Array);
+      }
+
+      console.log(`[FileManager] Attachment saved: ${filePath}`);
+      return filePath;
+    } catch (error) {
+      console.error(`[FileManager] Failed to write attachment ${filename}:`, error);
+
+      if (error instanceof FileWriteError) {
+        throw error;
+      }
+
+      throw new FileWriteError(
+        `Failed to write attachment: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        { filename, pageSlug, error }
+      );
+    }
+  }
+
+  /**
+   * 첨부파일 고유 파일명 생성 (중복 시 숫자 suffix 추가)
+   * @param filename 원본 파일명
+   * @param folderPath 폴더 경로
+   * @returns 고유한 파일명
+   */
+  private async ensureUniqueAttachmentFilename(filename: string, folderPath: string): Promise<string> {
+    let uniqueName = filename;
+    let counter = 2;
+
+    while (await this.fileExists(`${folderPath}/${uniqueName}`)) {
+      // 파일명과 확장자 분리
+      const lastDotIndex = filename.lastIndexOf('.');
+      if (lastDotIndex > 0) {
+        const base = filename.substring(0, lastDotIndex);
+        const ext = filename.substring(lastDotIndex);
+        uniqueName = `${base}-${counter}${ext}`;
+      } else {
+        uniqueName = `${filename}-${counter}`;
+      }
+      counter++;
+    }
+
+    return uniqueName;
+  }
 }
