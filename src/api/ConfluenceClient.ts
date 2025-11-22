@@ -48,9 +48,17 @@ export class ConfluenceClient {
 	private currentTenant: TenantConfig | null = null;
 	private localServer: http.Server | null = null;
 	private oauthConfig: OAuthConfig;
+	private onTokenRefreshed?: (tenant: TenantConfig) => Promise<void>;
 
 	constructor(oauthConfig: OAuthConfig) {
 		this.oauthConfig = oauthConfig;
+	}
+
+	/**
+	 * Set callback to be called when token is refreshed
+	 */
+	setTokenRefreshCallback(callback: (tenant: TenantConfig) => Promise<void>): void {
+		this.onTokenRefreshed = callback;
 	}
 
 	/**
@@ -296,7 +304,12 @@ export class ConfluenceClient {
 			expiresAt: Date.now() + (tokens.expires_in * 1000)
 		};
 
-		console.log('Access token refreshed successfully');
+		console.log('[Confluence] Access token refreshed successfully');
+
+		// Call callback to save updated tenant to settings
+		if (this.onTokenRefreshed && this.currentTenant) {
+			await this.onTokenRefreshed(this.currentTenant);
+		}
 	}
 
 	/**

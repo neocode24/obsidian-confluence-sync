@@ -17689,6 +17689,12 @@ var ConfluenceClient = class {
     this.oauthConfig = oauthConfig;
   }
   /**
+   * Set callback to be called when token is refreshed
+   */
+  setTokenRefreshCallback(callback) {
+    this.onTokenRefreshed = callback;
+  }
+  /**
    * Initialize Confluence client
    */
   async initialize(tenantConfig) {
@@ -17891,7 +17897,10 @@ var ConfluenceClient = class {
       refreshToken: tokens.refresh_token || this.currentTenant.oauthToken.refreshToken,
       expiresAt: Date.now() + tokens.expires_in * 1e3
     };
-    console.log("Access token refreshed successfully");
+    console.log("[Confluence] Access token refreshed successfully");
+    if (this.onTokenRefreshed && this.currentTenant) {
+      await this.onTokenRefreshed(this.currentTenant);
+    }
   }
   /**
    * Disconnect and clear state
@@ -18010,6 +18019,11 @@ var ConfluenceSettingsTab = class extends import_obsidian2.PluginSettingTab {
       return;
     }
     this.confluenceClient = new ConfluenceClient(this.plugin.settings.oauthConfig);
+    this.confluenceClient.setTokenRefreshCallback(async (updatedTenant) => {
+      this.plugin.settings.tenants[0] = updatedTenant;
+      await this.plugin.saveSettings();
+      console.log("[SettingsTab] Token refreshed and saved to settings");
+    });
   }
   display() {
     var _a, _b;
@@ -21240,6 +21254,11 @@ var ConfluenceSyncPlugin = class extends import_obsidian5.Plugin {
     this.addSettingTab(new ConfluenceSettingsTab(this.app, this));
     if (((_a = this.settings.oauthConfig) == null ? void 0 : _a.clientId) && ((_b = this.settings.oauthConfig) == null ? void 0 : _b.clientSecret)) {
       this.confluenceClient = new ConfluenceClient(this.settings.oauthConfig);
+      this.confluenceClient.setTokenRefreshCallback(async (updatedTenant) => {
+        this.settings.tenants[0] = updatedTenant;
+        await this.saveSettings();
+        console.log("[Plugin] Token refreshed and saved to settings");
+      });
       if (this.settings.tenants.length > 0 && this.settings.tenants[0].oauthToken) {
         this.confluenceClient.restoreTenant(this.settings.tenants[0]);
       }

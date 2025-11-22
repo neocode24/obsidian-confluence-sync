@@ -26,6 +26,13 @@ export default class ConfluenceSyncPlugin extends Plugin {
 		if (this.settings.oauthConfig?.clientId && this.settings.oauthConfig?.clientSecret) {
 			this.confluenceClient = new ConfluenceClient(this.settings.oauthConfig);
 
+			// Set token refresh callback to save updated tokens
+			this.confluenceClient.setTokenRefreshCallback(async (updatedTenant) => {
+				this.settings.tenants[0] = updatedTenant;
+				await this.saveSettings();
+				console.log('[Plugin] Token refreshed and saved to settings');
+			});
+
 			// Restore tenant state if saved
 			if (this.settings.tenants.length > 0 && this.settings.tenants[0].oauthToken) {
 				this.confluenceClient.restoreTenant(this.settings.tenants[0]);
