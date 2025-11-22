@@ -17689,6 +17689,12 @@ var ConfluenceClient = class {
     this.oauthConfig = oauthConfig;
   }
   /**
+   * Set callback to be called when token is refreshed
+   */
+  setTokenRefreshCallback(callback) {
+    this.onTokenRefreshed = callback;
+  }
+  /**
    * Initialize Confluence client
    */
   async initialize(tenantConfig) {
@@ -17859,8 +17865,18 @@ var ConfluenceClient = class {
     if (!((_a = this.currentTenant) == null ? void 0 : _a.oauthToken)) {
       throw new OAuthError("Not authenticated");
     }
-    if (this.currentTenant.oauthToken.expiresAt <= Date.now()) {
-      await this.refreshAccessToken();
+    const now = Date.now();
+    const expiresAt = this.currentTenant.oauthToken.expiresAt;
+    const timeUntilExpiry = expiresAt - now;
+    console.log(`[Confluence] Token check - Expires at: ${new Date(expiresAt).toISOString()}, Now: ${new Date(now).toISOString()}, Time until expiry: ${Math.floor(timeUntilExpiry / 1e3)}s`);
+    if (timeUntilExpiry <= 6e4) {
+      console.log("[Confluence] Token expired or expiring soon, refreshing...");
+      try {
+        await this.refreshAccessToken();
+      } catch (error) {
+        console.error("[Confluence] Token refresh failed:", error);
+        throw new OAuthError(`Failed to refresh token: ${error instanceof Error ? error.message : "Unknown error"}`);
+      }
     }
     return this.currentTenant.oauthToken.accessToken;
   }
@@ -17870,28 +17886,44 @@ var ConfluenceClient = class {
   async refreshAccessToken() {
     var _a, _b;
     if (!((_b = (_a = this.currentTenant) == null ? void 0 : _a.oauthToken) == null ? void 0 : _b.refreshToken)) {
-      throw new OAuthError("No refresh token available");
+      throw new OAuthError("No refresh token available. Please reconnect to Confluence.");
     }
-    const response = await (0, import_obsidian.requestUrl)({
-      url: DEFAULT_OAUTH_CONFIG.tokenUrl,
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        grant_type: "refresh_token",
-        client_id: this.oauthConfig.clientId,
-        client_secret: this.oauthConfig.clientSecret,
-        refresh_token: this.currentTenant.oauthToken.refreshToken
-      })
-    });
-    const tokens = response.json;
-    this.currentTenant.oauthToken = {
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token || this.currentTenant.oauthToken.refreshToken,
-      expiresAt: Date.now() + tokens.expires_in * 1e3
-    };
-    console.log("Access token refreshed successfully");
+    try {
+      console.log("[Confluence] Refreshing access token...");
+      const response = await (0, import_obsidian.requestUrl)({
+        url: DEFAULT_OAUTH_CONFIG.tokenUrl,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          grant_type: "refresh_token",
+          client_id: this.oauthConfig.clientId,
+          client_secret: this.oauthConfig.clientSecret,
+          refresh_token: this.currentTenant.oauthToken.refreshToken
+        })
+      });
+      const tokens = response.json;
+      if (!tokens.access_token) {
+        throw new OAuthError("Invalid token response from server");
+      }
+      this.currentTenant.oauthToken = {
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token || this.currentTenant.oauthToken.refreshToken,
+        expiresAt: Date.now() + tokens.expires_in * 1e3
+      };
+      console.log("[Confluence] Access token refreshed successfully");
+      console.log(`[Confluence] New token expires at: ${new Date(this.currentTenant.oauthToken.expiresAt).toISOString()}`);
+      if (this.onTokenRefreshed && this.currentTenant) {
+        await this.onTokenRefreshed(this.currentTenant);
+      }
+    } catch (error) {
+      console.error("[Confluence] Token refresh failed:", error);
+      if (error.status === 400 || error.status === 401) {
+        throw new OAuthError("Refresh token is invalid or expired. Please reconnect to Confluence from Settings.");
+      }
+      throw error;
+    }
   }
   /**
    * Disconnect and clear state
@@ -18010,6 +18042,11 @@ var ConfluenceSettingsTab = class extends import_obsidian2.PluginSettingTab {
       return;
     }
     this.confluenceClient = new ConfluenceClient(this.plugin.settings.oauthConfig);
+    this.confluenceClient.setTokenRefreshCallback(async (updatedTenant) => {
+      this.plugin.settings.tenants[0] = updatedTenant;
+      await this.plugin.saveSettings();
+      console.log("[SettingsTab] Token refreshed and saved to settings");
+    });
   }
   display() {
     var _a, _b;
@@ -18181,6 +18218,8 @@ var ConfluenceSettingsTab = class extends import_obsidian2.PluginSettingTab {
         this.plugin.settings.tenants[0] = updatedTenant;
         await this.plugin.saveSettings();
       }
+      this.plugin.confluenceClient = this.confluenceClient;
+      console.log("[SettingsTab] Updated plugin confluenceClient reference");
       this.display();
     } catch (error) {
       if (error instanceof MCPConnectionError) {
@@ -21240,6 +21279,11 @@ var ConfluenceSyncPlugin = class extends import_obsidian5.Plugin {
     this.addSettingTab(new ConfluenceSettingsTab(this.app, this));
     if (((_a = this.settings.oauthConfig) == null ? void 0 : _a.clientId) && ((_b = this.settings.oauthConfig) == null ? void 0 : _b.clientSecret)) {
       this.confluenceClient = new ConfluenceClient(this.settings.oauthConfig);
+      this.confluenceClient.setTokenRefreshCallback(async (updatedTenant) => {
+        this.settings.tenants[0] = updatedTenant;
+        await this.saveSettings();
+        console.log("[Plugin] Token refreshed and saved to settings");
+      });
       if (this.settings.tenants.length > 0 && this.settings.tenants[0].oauthToken) {
         this.confluenceClient.restoreTenant(this.settings.tenants[0]);
       }

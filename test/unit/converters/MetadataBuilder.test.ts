@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { MetadataBuilder } from '../../../src/converters/MetadataBuilder';
 import { ConfluencePage } from '../../../src/types/confluence';
+import { CONFLUENCE_START_MARKER, CONFLUENCE_END_MARKER } from '../../../src/utils/ContentRegionParser';
 import * as yaml from 'js-yaml';
 
 describe('MetadataBuilder', () => {
@@ -142,7 +143,7 @@ describe('MetadataBuilder', () => {
 
       const combined = builder.combineContent(frontmatter, markdown);
 
-      expect(combined).toBe('---\ntitle: Test\n---\n\n# Heading\n\nParagraph\n');
+      expect(combined).toBe(`---\ntitle: Test\n---\n\n${CONFLUENCE_START_MARKER}\n# Heading\n\nParagraph\n${CONFLUENCE_END_MARKER}`);
     });
 
     it('should add proper spacing between frontmatter and content', () => {
@@ -151,7 +152,8 @@ describe('MetadataBuilder', () => {
 
       const combined = builder.combineContent(frontmatter, markdown);
 
-      expect(combined).toContain('---\n\nContent');
+      expect(combined).toContain(`---\n\n${CONFLUENCE_START_MARKER}\nContent`);
+      expect(combined).toContain(`${CONFLUENCE_END_MARKER}`);
     });
 
     it('should handle empty markdown content', () => {
@@ -160,7 +162,7 @@ describe('MetadataBuilder', () => {
 
       const combined = builder.combineContent(frontmatter, markdown);
 
-      expect(combined).toBe('---\ntitle: Test\n---\n\n\n');
+      expect(combined).toBe(`---\ntitle: Test\n---\n\n${CONFLUENCE_START_MARKER}\n\n${CONFLUENCE_END_MARKER}`);
     });
   });
 });

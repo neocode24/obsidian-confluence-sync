@@ -1,5 +1,6 @@
 import * as yaml from 'js-yaml';
 import { ConfluencePage } from '../types/confluence';
+import { CONFLUENCE_START_MARKER, CONFLUENCE_END_MARKER } from '../utils/ContentRegionParser';
 
 /**
  * YAML Frontmatter 메타데이터 인터페이스
@@ -61,12 +62,12 @@ export class MetadataBuilder {
   }
 
   /**
-   * Frontmatter와 마크다운 본문을 결합
+   * Frontmatter와 마크다운 본문을 결합 (Confluence 영역 마커 포함)
    * @param frontmatter YAML Frontmatter 문자열
    * @param markdown 마크다운 본문
-   * @returns 최종 파일 콘텐츠
+   * @returns 최종 파일 콘텐츠 (마커로 감싼 Confluence 영역)
    */
   combineContent(frontmatter: string, markdown: string): string {
-    return `${frontmatter}\n\n${markdown}\n`;
+    return `${frontmatter}\n\n${CONFLUENCE_START_MARKER}\n${markdown}\n${CONFLUENCE_END_MARKER}`;
   }
 }

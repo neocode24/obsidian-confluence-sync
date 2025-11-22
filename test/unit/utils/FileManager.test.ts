@@ -47,18 +47,35 @@ describe('FileManager', () => {
       await fileManager.writeFile('confluence/test.md', '# Test');
 
       expect(mockVault.createFolder).toHaveBeenCalledWith('confluence');
-      expect(mockVault.create).toHaveBeenCalledWith('confluence/test.md', '# Test');
+      // Should add local notes template to new files
+      expect(mockVault.create).toHaveBeenCalledWith(
+        'confluence/test.md',
+        expect.stringContaining('# Test')
+      );
+      expect(mockVault.create).toHaveBeenCalledWith(
+        'confluence/test.md',
+        expect.stringContaining('## Local Notes')
+      );
     });
 
     it('should modify existing file', async () => {
       const mockFile = new TFile();
       (mockFile as any).path = 'confluence/test.md';
       mockVault.getAbstractFileByPath.mockReturnValue(mockFile);
+      mockVault.read.mockResolvedValue('---\ntitle: Old\n---\n\n<!-- CONFLUENCE_START -->\n# Old\n<!-- CONFLUENCE_END -->\n\n## Local Notes\nMy notes');
       mockVault.modify.mockResolvedValue(undefined);
 
       await fileManager.writeFile('confluence/test.md', '# Updated');
 
-      expect(mockVault.modify).toHaveBeenCalledWith(mockFile, '# Updated');
+      // Should preserve local notes from existing file
+      expect(mockVault.modify).toHaveBeenCalledWith(
+        mockFile,
+        expect.stringContaining('# Updated')
+      );
+      expect(mockVault.modify).toHaveBeenCalledWith(
+        mockFile,
+        expect.stringContaining('## Local Notes\nMy notes')
+      );
     });
 
     it('should reject path traversal attempts', async () => {

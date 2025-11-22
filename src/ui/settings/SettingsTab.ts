@@ -17,6 +17,13 @@ export class ConfluenceSettingsTab extends PluginSettingTab {
 			return;
 		}
 		this.confluenceClient = new ConfluenceClient(this.plugin.settings.oauthConfig);
+
+		// Set token refresh callback to save updated tokens
+		this.confluenceClient.setTokenRefreshCallback(async (updatedTenant) => {
+			this.plugin.settings.tenants[0] = updatedTenant;
+			await this.plugin.saveSettings();
+			console.log('[SettingsTab] Token refreshed and saved to settings');
+		});
 	}
 
 	display(): void {
@@ -261,6 +268,10 @@ export class ConfluenceSettingsTab extends PluginSettingTab {
 				this.plugin.settings.tenants[0] = updatedTenant;
 				await this.plugin.saveSettings();
 			}
+
+			// Update plugin's confluenceClient reference
+			this.plugin.confluenceClient = this.confluenceClient;
+			console.log('[SettingsTab] Updated plugin confluenceClient reference');
 
 			// Refresh status display
 			this.display();
