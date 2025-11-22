@@ -46,18 +46,50 @@ var import_obsidian2 = require("obsidian");
 var import_obsidian = require("obsidian");
 var http = __toESM(require("http"));
 var crypto = __toESM(require("crypto"));
-var MCPConnectionError = class extends Error {
-  constructor(message) {
+
+// src/types/errors.ts
+var ConfluenceSyncError = class extends Error {
+  constructor(message, code, details, recoverable = false) {
     super(message);
+    this.code = code;
+    this.details = details;
+    this.recoverable = recoverable;
+    this.name = "ConfluenceSyncError";
+  }
+};
+var MCPConnectionError = class extends ConfluenceSyncError {
+  constructor(message, details) {
+    super(message, "MCP_CONNECTION_ERROR", details, false);
     this.name = "MCPConnectionError";
   }
 };
-var OAuthError = class extends Error {
-  constructor(message) {
-    super(message);
+var OAuthError = class extends ConfluenceSyncError {
+  constructor(message, details) {
+    super(message, "OAUTH_ERROR", details, false);
     this.name = "OAuthError";
   }
 };
+var NetworkError = class extends ConfluenceSyncError {
+  constructor(message, details) {
+    super(message, "NETWORK_ERROR", details, true);
+    this.name = "NetworkError";
+  }
+};
+var ConfluenceAPIError = class extends ConfluenceSyncError {
+  constructor(message, statusCode, details) {
+    super(message, "CONFLUENCE_API_ERROR", { statusCode, ...details }, false);
+    this.statusCode = statusCode;
+    this.name = "ConfluenceAPIError";
+  }
+};
+var PermissionError = class extends ConfluenceSyncError {
+  constructor(message, details) {
+    super(message, "PERMISSION_ERROR", details, false);
+    this.name = "PermissionError";
+  }
+};
+
+// src/api/ConfluenceClient.ts
 var DEFAULT_OAUTH_CONFIG = {
   redirectUri: "http://localhost:8080/callback",
   scope: "read:confluence-content.all write:confluence-content read:confluence-space.summary offline_access",
@@ -283,6 +315,101 @@ var ConfluenceClient = class {
     this.stopCallbackServer();
     this.currentTenant = null;
   }
+  /**
+   * Search Confluence pages using CQL query
+   * @param cql CQL query string (default: creator = currentUser() AND type = page)
+   * @param limit Maximum number of results (default: 50, max: 100)
+   * @returns Array of ConfluencePage objects
+   */
+  async searchPages(cql = "creator = currentUser() AND type = page", limit = 50) {
+    var _a, _b, _c;
+    if (!((_a = this.currentTenant) == null ? void 0 : _a.cloudId)) {
+      throw new MCPConnectionError("Tenant not initialized or cloudId missing");
+    }
+    if (!this.isConnected()) {
+      throw new OAuthError("Not authenticated. Please connect to Confluence first.");
+    }
+    try {
+      const accessToken = await this.getAccessToken();
+      const baseUrl = `https://api.atlassian.com/ex/confluence/${this.currentTenant.cloudId}`;
+      const endpoint = `${baseUrl}/wiki/api/v2/search`;
+      const params = new URLSearchParams({
+        cql,
+        limit: Math.min(limit, 100).toString(),
+        expand: "body.storage,version,metadata.labels"
+      });
+      const url = `${endpoint}?${params.toString()}`;
+      console.log(`[Confluence] Searching pages with CQL: ${cql}`);
+      const response = await (0, import_obsidian.requestUrl)({
+        url,
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+          "Accept": "application/json"
+        }
+      });
+      const data = response.json;
+      const pages = this.parseSearchResults(data);
+      console.log(`[Confluence] Found ${pages.length} pages`);
+      pages.forEach((page) => {
+        console.log(`  - ID: ${page.id}, Title: "${page.title}", Space: ${page.spaceKey}`);
+      });
+      return pages;
+    } catch (error) {
+      if (error.status) {
+        switch (error.status) {
+          case 401:
+            throw new OAuthError("Authentication failed. Token may be expired.");
+          case 403:
+            throw new PermissionError("Permission denied. Check Confluence access permissions.");
+          case 400:
+            throw new ConfluenceAPIError(`Invalid CQL query: ${cql}`, 400, { cql });
+          case 429:
+            throw new ConfluenceAPIError("Rate limit exceeded", 429);
+          default:
+            throw new ConfluenceAPIError(
+              `Confluence API error: ${error.message}`,
+              error.status
+            );
+        }
+      }
+      if (((_b = error.message) == null ? void 0 : _b.includes("network")) || ((_c = error.message) == null ? void 0 : _c.includes("timeout"))) {
+        throw new NetworkError(`Network error: ${error.message}`);
+      }
+      if (error instanceof MCPConnectionError || error instanceof OAuthError || error instanceof NetworkError || error instanceof ConfluenceAPIError || error instanceof PermissionError) {
+        throw error;
+      }
+      throw new NetworkError(`Unexpected error: ${error.message}`);
+    }
+  }
+  /**
+   * Parse Confluence API search results into ConfluencePage objects
+   */
+  parseSearchResults(data) {
+    if (!data || !data.results) {
+      return [];
+    }
+    return data.results.filter((result) => {
+      var _a;
+      return ((_a = result.content) == null ? void 0 : _a.type) === "page";
+    }).map((result) => {
+      var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+      const content = result.content;
+      return {
+        id: content.id,
+        title: content.title,
+        spaceKey: ((_a = content.space) == null ? void 0 : _a.key) || "UNKNOWN",
+        content: ((_c = (_b = content.body) == null ? void 0 : _b.storage) == null ? void 0 : _c.value) || "",
+        version: ((_d = content.version) == null ? void 0 : _d.number) || 1,
+        lastModified: ((_e = content.version) == null ? void 0 : _e.createdAt) || (/* @__PURE__ */ new Date()).toISOString(),
+        author: content.authorId || "unknown",
+        url: ((_f = content._links) == null ? void 0 : _f.webui) ? `${this.currentTenant.url}${content._links.webui}` : "",
+        labels: ((_i = (_h = (_g = content.metadata) == null ? void 0 : _g.labels) == null ? void 0 : _h.results) == null ? void 0 : _i.map((l) => l.name)) || [],
+        parentId: content.parentId,
+        attachments: []
+      };
+    });
+  }
 };
 
 // src/ui/settings/SettingsTab.ts
@@ -390,6 +517,16 @@ var ConfluenceSettingsTab = class extends import_obsidian2.PluginSettingTab {
   }
   displayTenantSection(containerEl) {
     containerEl.createEl("h3", { text: "Confluence \uC5F0\uACB0" });
+    new import_obsidian2.Setting(containerEl).setName("\uB3D9\uAE30\uD654 \uACBD\uB85C").setDesc("Confluence \uD398\uC774\uC9C0\uB97C \uC800\uC7A5\uD560 Vault \uB0B4 \uD3F4\uB354 \uACBD\uB85C (\uAE30\uBCF8\uAC12: confluence/)").addText(
+      (text) => text.setPlaceholder("confluence/").setValue(this.plugin.settings.syncPath).onChange(async (value) => {
+        let normalizedPath = value.trim();
+        if (normalizedPath && !normalizedPath.endsWith("/")) {
+          normalizedPath += "/";
+        }
+        this.plugin.settings.syncPath = normalizedPath || "confluence/";
+        await this.plugin.saveSettings();
+      })
+    );
     new import_obsidian2.Setting(containerEl).setName("Confluence URL").setDesc("Confluence \uC778\uC2A4\uD134\uC2A4 URL (\uC608: https://yourcompany.atlassian.net)").addText(
       (text) => {
         var _a;
