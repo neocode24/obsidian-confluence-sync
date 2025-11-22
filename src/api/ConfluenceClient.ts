@@ -39,7 +39,7 @@ export interface OAuthConfig {
 
 const DEFAULT_OAUTH_CONFIG = {
 	redirectUri: 'http://localhost:8080/callback',
-	scope: 'read:confluence-content.all write:confluence-content read:confluence-space.summary offline_access',
+	scope: 'write:confluence-content read:confluence-space.summary write:confluence-space write:confluence-file read:confluence-props write:confluence-props manage:confluence-configuration read:confluence-content.all read:confluence-content.summary search:confluence read:confluence-content.permission read:confluence-user read:confluence-groups write:confluence-groups readonly:content.attachment:confluence offline_access',
 	authorizationUrl: 'https://auth.atlassian.com/authorize',
 	tokenUrl: 'https://auth.atlassian.com/oauth/token',
 	resourcesUrl: 'https://api.atlassian.com/oauth/token/accessible-resources'
@@ -305,7 +305,12 @@ export class ConfluenceClient {
 		}
 
 		try {
-			this.logger.debug('Refreshing access token');
+			const oldToken = this.currentTenant.oauthToken.accessToken;
+			const oldTokenPreview = oldToken.substring(0, 20) + '...';
+			const oldTokenSuffix = oldToken.substring(oldToken.length - 20);
+			const oldTokenLength = oldToken.length;
+			this.logger.debug('Refreshing access token', { oldTokenPreview, oldTokenSuffix, oldTokenLength });
+
 			const response = await requestUrl({
 				url: DEFAULT_OAUTH_CONFIG.tokenUrl,
 				method: 'POST',
@@ -326,6 +331,22 @@ export class ConfluenceClient {
 				throw new OAuthError('Invalid token response from server');
 			}
 
+			const newTokenPreview = tokens.access_token.substring(0, 20) + '...';
+			const newTokenSuffix = tokens.access_token.substring(tokens.access_token.length - 20);
+			const newTokenLength = tokens.access_token.length;
+
+			// Check if we got a new token
+			if (tokens.access_token === oldToken) {
+				this.logger.error('Refresh token returned same access token - refresh token may be expired', {
+					oldTokenPreview,
+					newTokenPreview,
+					oldTokenSuffix,
+					newTokenSuffix,
+					tokensAreIdentical: true
+				});
+				throw new OAuthError('Refresh token is invalid or expired. Please reconnect to Confluence from Settings.');
+			}
+
 			this.currentTenant.oauthToken = {
 				accessToken: tokens.access_token,
 				refreshToken: tokens.refresh_token || this.currentTenant.oauthToken.refreshToken,
@@ -333,6 +354,12 @@ export class ConfluenceClient {
 			};
 
 			this.logger.info('Access token refreshed successfully', {
+				oldTokenPreview,
+				newTokenPreview,
+				oldTokenSuffix,
+				newTokenSuffix,
+				oldTokenLength,
+				newTokenLength,
 				expiresAt: new Date(this.currentTenant.oauthToken.expiresAt).toLocaleString('ko-KR')
 			});
 
@@ -381,9 +408,15 @@ export class ConfluenceClient {
 		}
 
 		try {
+			this.logger.debug('searchPages called', { retryCount });
 			const accessToken = await this.getAccessToken();
+			this.logger.debug('Got access token for API call', {
+				tokenPreview: accessToken.substring(0, 20) + '...'
+			});
+
 			const baseUrl = `https://api.atlassian.com/ex/confluence/${this.currentTenant.cloudId}`;
-			const endpoint = `${baseUrl}/wiki/api/v2/search`;
+			// Use v1 API for CQL search - v2 may have different scope requirements
+			const endpoint = `${baseUrl}/rest/api/content/search`;
 
 			// Build query parameters
 			const params = new URLSearchParams({
@@ -421,6 +454,13 @@ export class ConfluenceClient {
 			if (error.status) {
 				switch (error.status) {
 					case 401:
+						// Log detailed 401 error information
+						this.logger.warn('401 Unauthorized error', {
+							message: error.message,
+							response: error.text || error.json,
+							headers: error.headers
+						});
+
 						// Retry once with token refresh on 401
 						if (retryCount === 0) {
 							this.logger.warn('401 error, attempting token refresh and retry');

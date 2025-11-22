@@ -2,6 +2,7 @@ import { App, PluginSettingTab, Setting, Notice } from 'obsidian';
 import type ConfluenceSyncPlugin from '../../../main';
 import { ConfluenceClient, TenantConfig } from '../../api/ConfluenceClient';
 import { MCPConnectionError, OAuthError } from '../../types/errors';
+import { Logger } from '../../utils/Logger';
 
 export class ConfluenceSettingsTab extends PluginSettingTab {
 	plugin: ConfluenceSyncPlugin;
@@ -391,9 +392,62 @@ export class ConfluenceSettingsTab extends PluginSettingTab {
 
 		// Info message
 		containerEl.createEl('p', {
-			text: 'ℹ️ 로그는 개발자 도구 콘솔에서 확인할 수 있습니다 (Ctrl+Shift+I 또는 Cmd+Option+I)',
+			text: 'ℹ️ 로그는 개발자 도구 콘솔과 로그 파일에 기록됩니다',
 			cls: 'setting-item-description'
 		});
+
+		// Log file path info
+		containerEl.createEl('p', {
+			text: `📁 로그 파일: .obsidian/plugins/confluence-sync/confluence-sync.log (최대 1000줄 유지)`,
+			cls: 'setting-item-description'
+		});
+
+		// Open log file button
+		new Setting(containerEl)
+			.setName('로그 파일 열기')
+			.setDesc('로그 파일을 Obsidian에서 열어봅니다')
+			.addButton(button => button
+				.setButtonText('로그 파일 열기')
+				.onClick(async () => {
+					const logFilePath = '.obsidian/plugins/confluence-sync/confluence-sync.log';
+					try {
+						// Check if file exists
+						const fileExists = await this.app.vault.adapter.exists(logFilePath);
+						if (!fileExists) {
+							new Notice('⚠️ 로그 파일이 아직 생성되지 않았습니다. 플러그인을 사용하면 자동으로 생성됩니다.');
+							return;
+						}
+
+						// Open file in Obsidian
+						const file = this.app.vault.getAbstractFileByPath(logFilePath);
+						if (file) {
+							await this.app.workspace.openLinkText(logFilePath, '', false);
+							new Notice('✅ 로그 파일을 열었습니다');
+						} else {
+							new Notice('⚠️ 로그 파일을 열 수 없습니다');
+						}
+					} catch (error) {
+						new Notice('❌ 로그 파일 열기 실패: ' + (error instanceof Error ? error.message : 'Unknown error'));
+					}
+				})
+			);
+
+		// Clear log file button
+		new Setting(containerEl)
+			.setName('로그 파일 클리어')
+			.setDesc('로그 파일의 모든 내용을 삭제합니다')
+			.addButton(button => button
+				.setButtonText('로그 클리어')
+				.setWarning()
+				.onClick(async () => {
+					try {
+						await Logger.clearLogFile();
+						new Notice('✅ 로그 파일을 클리어했습니다');
+					} catch (error) {
+						new Notice('❌ 로그 파일 클리어 실패: ' + (error instanceof Error ? error.message : 'Unknown error'));
+					}
+				})
+			);
 	}
 
 	private displayConnectionStatus(containerEl: HTMLElement): void {
