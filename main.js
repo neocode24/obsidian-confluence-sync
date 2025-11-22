@@ -17616,7 +17616,7 @@ __export(main_exports, {
   default: () => ConfluenceSyncPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian6 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 
 // src/ui/settings/SettingsTab.ts
 var import_obsidian2 = require("obsidian");
@@ -22303,7 +22303,6 @@ var CQLBuilder = class {
 };
 
 // src/sync/BackgroundChangeDetector.ts
-var import_obsidian5 = require("obsidian");
 var BackgroundChangeDetector = class {
   constructor(confluenceClient, syncHistory, filters) {
     this.confluenceClient = confluenceClient;
@@ -22341,9 +22340,6 @@ var BackgroundChangeDetector = class {
           }
         }
       }
-      if (changedCount > 0) {
-        new import_obsidian5.Notice(`\u{1F4E2} Confluence\uC5D0 ${changedCount}\uAC1C\uC758 \uBCC0\uACBD\uB41C \uD398\uC774\uC9C0\uAC00 \uC788\uC2B5\uB2C8\uB2E4.`);
-      }
       console.log(`[BackgroundChangeDetector] Found ${changedCount} changed pages out of ${pages.length}`);
       return changedCount;
     } catch (error) {
@@ -22354,7 +22350,7 @@ var BackgroundChangeDetector = class {
 };
 
 // main.ts
-var ConfluenceSyncPlugin = class extends import_obsidian6.Plugin {
+var ConfluenceSyncPlugin = class extends import_obsidian5.Plugin {
   constructor(app, manifest) {
     super(app, manifest);
     this.confluenceClient = null;
@@ -22386,13 +22382,13 @@ var ConfluenceSyncPlugin = class extends import_obsidian6.Plugin {
       id: "test-confluence-sync",
       name: "Test Confluence Sync",
       callback: () => {
-        new import_obsidian6.Notice("Confluence Sync plugin is working! \u{1F389}");
+        new import_obsidian5.Notice("Confluence Sync plugin is working! \u{1F389}");
       }
     });
     if (this.settings.backgroundCheck && this.settings.backgroundCheckOnStartup) {
       this.runBackgroundCheck();
     }
-    new import_obsidian6.Notice("Confluence Sync plugin loaded successfully!");
+    new import_obsidian5.Notice("Confluence Sync plugin loaded successfully!");
   }
   onunload() {
     console.log("Unloading Confluence Sync plugin");
@@ -22411,6 +22407,10 @@ var ConfluenceSyncPlugin = class extends import_obsidian6.Plugin {
       console.log("[ConfluenceSyncPlugin] Background check skipped - not connected");
       return;
     }
+    if (!this.settings.showNotifications) {
+      console.log("[ConfluenceSyncPlugin] Background check skipped - notifications disabled");
+      return;
+    }
     try {
       const syncHistory = new SyncHistory(this.app);
       const backgroundDetector = new BackgroundChangeDetector(
@@ -22418,10 +22418,39 @@ var ConfluenceSyncPlugin = class extends import_obsidian6.Plugin {
         syncHistory,
         this.settings.filters
       );
-      await backgroundDetector.checkForChanges();
+      const changedCount = await backgroundDetector.checkForChanges();
+      if (changedCount > 0) {
+        this.showChangeNotification(changedCount);
+      }
     } catch (error) {
       console.log("[ConfluenceSyncPlugin] Background check failed:", error);
     }
+  }
+  /**
+   * 변경사항 알림 표시 (액션 버튼 포함)
+   */
+  showChangeNotification(count) {
+    const notice = new import_obsidian5.Notice("", 15e3);
+    const messageEl = notice.noticeEl.createDiv();
+    messageEl.setText(`\u{1F514} Confluence\uC5D0 ${count}\uAC1C \uD398\uC774\uC9C0 \uC5C5\uB370\uC774\uD2B8\uB428`);
+    messageEl.style.marginBottom = "8px";
+    const buttonContainer = notice.noticeEl.createDiv();
+    buttonContainer.style.display = "flex";
+    buttonContainer.style.gap = "8px";
+    const syncButton = buttonContainer.createEl("button", {
+      text: "\uC9C0\uAE08 \uB3D9\uAE30\uD654",
+      cls: "mod-cta"
+    });
+    syncButton.addEventListener("click", async () => {
+      notice.hide();
+      await this.syncConfluencePages();
+    });
+    const laterButton = buttonContainer.createEl("button", {
+      text: "\uB098\uC911\uC5D0"
+    });
+    laterButton.addEventListener("click", () => {
+      notice.hide();
+    });
   }
   /**
    * Confluence 페이지 동기화 실행
@@ -22429,19 +22458,22 @@ var ConfluenceSyncPlugin = class extends import_obsidian6.Plugin {
   async syncConfluencePages() {
     var _a;
     if (!this.confluenceClient) {
-      new import_obsidian6.Notice("\u26A0\uFE0F Confluence OAuth \uC124\uC815\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC124\uC815 \uD0ED\uC5D0\uC11C \uBA3C\uC800 \uC5F0\uACB0\uD558\uC138\uC694.");
+      new import_obsidian5.Notice("\u26A0\uFE0F Confluence OAuth \uC124\uC815\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC124\uC815 \uD0ED\uC5D0\uC11C \uBA3C\uC800 \uC5F0\uACB0\uD558\uC138\uC694.");
       return;
     }
     if (!this.confluenceClient.isConnected()) {
-      new import_obsidian6.Notice("\u26A0\uFE0F Confluence\uC5D0 \uC5F0\uACB0\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uC124\uC815 \uD0ED\uC5D0\uC11C \uBA3C\uC800 \uC5F0\uACB0\uD558\uC138\uC694.");
+      new import_obsidian5.Notice("\u26A0\uFE0F Confluence\uC5D0 \uC5F0\uACB0\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uC124\uC815 \uD0ED\uC5D0\uC11C \uBA3C\uC800 \uC5F0\uACB0\uD558\uC138\uC694.");
       return;
+    }
+    if (this.settings.showNotifications) {
+      new import_obsidian5.Notice("\u{1F504} Confluence \uB3D9\uAE30\uD654\uB97C \uC2DC\uC791\uD569\uB2C8\uB2E4...");
     }
     try {
       const cqlBuilder = new CQLBuilder();
       if ((_a = this.settings.filters) == null ? void 0 : _a.enabled) {
         const isValid = cqlBuilder.validateFilters(this.settings.filters);
         if (!isValid) {
-          new import_obsidian6.Notice("\u26A0\uFE0F \uD544\uD130 \uC124\uC815\uC774 \uC720\uD6A8\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC124\uC815\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+          new import_obsidian5.Notice("\u26A0\uFE0F \uD544\uD130 \uC124\uC815\uC774 \uC720\uD6A8\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC124\uC815\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
           return;
         }
       }
@@ -22456,10 +22488,17 @@ var ConfluenceSyncPlugin = class extends import_obsidian6.Plugin {
         this.settings.forceFullSync,
         cqlQuery
       );
-      await syncEngine.syncAll();
+      const result = await syncEngine.syncAll();
+      if (this.settings.showNotifications) {
+        if (result.success) {
+          new import_obsidian5.Notice(`\u2705 \uB3D9\uAE30\uD654 \uC644\uB8CC: ${result.updatedPages}\uAC1C \uD398\uC774\uC9C0 \uC5C5\uB370\uC774\uD2B8, ${result.skippedPages}\uAC1C \uC2A4\uD0B5`);
+        } else {
+          new import_obsidian5.Notice(`\u26A0\uFE0F \uB3D9\uAE30\uD654 \uC644\uB8CC (\uC77C\uBD80 \uC624\uB958): ${result.successCount}\uAC1C \uC131\uACF5, ${result.failureCount}\uAC1C \uC2E4\uD328`);
+        }
+      }
     } catch (error) {
       console.error("[ConfluenceSyncPlugin] Sync error:", error);
-      new import_obsidian6.Notice(`\u274C \uB3D9\uAE30\uD654 \uC624\uB958: ${error instanceof Error ? error.message : "Unknown error"}`);
+      new import_obsidian5.Notice(`\u274C \uB3D9\uAE30\uD654 \uC624\uB958: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
   }
 };

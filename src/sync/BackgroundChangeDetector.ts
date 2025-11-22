@@ -1,4 +1,3 @@
-import { Notice } from 'obsidian';
 import { ConfluenceClient } from '../api/ConfluenceClient';
 import { SyncHistory } from './SyncHistory';
 import { CQLBuilder } from '../utils/CQLBuilder';
@@ -60,11 +59,6 @@ export class BackgroundChangeDetector {
             changedCount++;
           }
         }
-      }
-
-      // 6. 알림 표시 (변경이 있을 경우만)
-      if (changedCount > 0) {
-        new Notice(`📢 Confluence에 ${changedCount}개의 변경된 페이지가 있습니다.`);
       }
 
       console.log(`[BackgroundChangeDetector] Found ${changedCount} changed pages out of ${pages.length}`);
