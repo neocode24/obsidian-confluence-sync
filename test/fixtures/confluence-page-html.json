@@ -1,0 +1,8 @@
+{
+  "simpleHtml": "<h1>Sample Page Title</h1><p>This is a <strong>sample</strong> paragraph with <em>emphasis</em>.</p><ul><li>Item 1</li><li>Item 2</li></ul>",
+  "tableHtml": "<table><thead><tr><th>Header 1</th><th>Header 2</th></tr></thead><tbody><tr><td>Cell 1</td><td>Cell 2</td></tr><tr><td>Cell 3</td><td>Cell 4</td></tr></tbody></table>",
+  "codeBlockHtml": "<pre><code>function hello() {\n  console.log('Hello World');\n}</code></pre>",
+  "complexHtml": "<h1>Architecture Overview</h1><h2>Components</h2><p>The system consists of the following components:</p><ul><li>Frontend - React</li><li>Backend - Node.js</li><li>Database - PostgreSQL</li></ul><h2>Code Example</h2><pre><code>const express = require('express');\nconst app = express();\napp.listen(3000);</code></pre><p>More details in the <a href=\"https://example.com\">documentation</a>.</p>",
+  "emptyHtml": "",
+  "whiteSpaceOnlyHtml": "   \n  \n   "
+}
