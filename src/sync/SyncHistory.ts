@@ -123,4 +123,37 @@ export class SyncHistory {
   size(): number {
     return this.history.size;
   }
+
+  /**
+   * 페이지 ID → 파일명 매핑 생성
+   * @returns Map<pageId, filename>
+   */
+  getPageIdToFileMap(): Map<string, string> {
+    const pageIdToFileMap = new Map<string, string>();
+
+    for (const [pageId, record] of this.history.entries()) {
+      // filePath에서 파일명 추출 (예: "confluence/page-title.md" → "page-title.md")
+      const filename = record.filePath.split('/').pop() || record.filePath;
+      pageIdToFileMap.set(pageId, filename);
+    }
+
+    console.log(`[SyncHistory] Generated page ID mapping for ${pageIdToFileMap.size} pages`);
+    return pageIdToFileMap;
+  }
+
+  /**
+   * 페이지 ID로 파일명 조회
+   * @param pageId Confluence 페이지 ID
+   * @returns 파일명 (확장자 포함) 또는 undefined
+   */
+  getFilenameByPageId(pageId: string): string | undefined {
+    const record = this.history.get(pageId);
+    if (!record) {
+      return undefined;
+    }
+
+    // filePath에서 파일명 추출
+    const filename = record.filePath.split('/').pop() || record.filePath;
+    return filename;
+  }
 }

@@ -3,8 +3,10 @@ import { ConfluencePage } from '../types/confluence';
 import { PlantUMLParser } from './PlantUMLParser';
 import { DrawioParser } from './DrawioParser';
 import { AttachmentDownloader } from './AttachmentDownloader';
+import { PageLinkTransformer } from './PageLinkTransformer';
 import { FileManager } from '../utils/FileManager';
 import { ConfluenceClient } from '../api/ConfluenceClient';
+import { SyncHistory } from '../sync/SyncHistory';
 
 /**
  * Confluence Storage Format HTML을 Obsidian 호환 마크다운으로 변환
@@ -13,6 +15,7 @@ export class MarkdownConverter {
   private turndown: TurndownService;
   private plantUMLParser: PlantUMLParser;
   private drawioParser: DrawioParser;
+  private pageLinkTransformer: PageLinkTransformer;
 
   constructor() {
     this.turndown = new TurndownService({
@@ -25,6 +28,7 @@ export class MarkdownConverter {
 
     this.plantUMLParser = new PlantUMLParser();
     this.drawioParser = new DrawioParser();
+    this.pageLinkTransformer = new PageLinkTransformer();
     this.configureTurndown();
   }
 
@@ -79,6 +83,7 @@ export class MarkdownConverter {
    * @param pageSlug 페이지 슬러그 (파일명 생성용)
    * @param fileManager FileManager 인스턴스 (파일 저장용, optional)
    * @param confluenceClient ConfluenceClient 인스턴스 (첨부파일 다운로드용, optional)
+   * @param syncHistory SyncHistory 인스턴스 (페이지 링크 변환용, optional)
    * @param onAttachmentProgress 첨부파일 다운로드 진행률 콜백
    * @returns 변환된 마크다운 문자열
    */
@@ -87,6 +92,7 @@ export class MarkdownConverter {
     pageSlug?: string,
     fileManager?: FileManager,
     confluenceClient?: ConfluenceClient,
+    syncHistory?: SyncHistory,
     onAttachmentProgress?: (current: number, total: number) => void
   ): Promise<string> {
     if (!page.content || page.content.trim() === '') {
@@ -141,6 +147,12 @@ export class MarkdownConverter {
         if (urlToPathMap.size > 0) {
           markdown = attachmentDownloader.replaceAttachmentUrls(markdown, urlToPathMap);
         }
+      }
+
+      // 7. Confluence 페이지 링크를 Obsidian 위키링크로 변환
+      if (syncHistory) {
+        const pageIdToFileMap = syncHistory.getPageIdToFileMap();
+        markdown = this.pageLinkTransformer.transformLinks(markdown, pageIdToFileMap);
       }
 
       return markdown.trim();
