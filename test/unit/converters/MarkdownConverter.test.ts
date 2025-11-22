@@ -156,4 +156,125 @@ describe('MarkdownConverter', () => {
       expect(markdown).toContain('Special chars: < > &');
     });
   });
+
+  describe('PlantUML macro handling', () => {
+    it('should convert PlantUML macro to markdown code block', async () => {
+      const page: ConfluencePage = {
+        id: '12345',
+        title: 'Page with PlantUML',
+        spaceKey: 'TEST',
+        content: `
+<p>Introduction</p>
+<ac:structured-macro ac:name="plantuml">
+  <ac:parameter ac:name="title">System Diagram</ac:parameter>
+  <ac:plain-text-body>
+    <![CDATA[
+@startuml
+Alice -> Bob: Hello
+Bob -> Alice: Hi
+@enduml
+    ]]>
+  </ac:plain-text-body>
+</ac:structured-macro>
+<p>Conclusion</p>
+        `,
+        version: 1,
+        lastModified: '2025-11-22T00:00:00Z',
+        author: 'test@example.com',
+        url: 'https://test.atlassian.net/wiki/spaces/TEST/pages/12345',
+        labels: []
+      };
+
+      const markdown = await converter.convertPage(page);
+
+      expect(markdown).toContain('<!-- System Diagram -->');
+      expect(markdown).toContain('```plantuml');
+      expect(markdown).toContain('Alice -> Bob: Hello');
+      expect(markdown).toContain('Bob -> Alice: Hi');
+      expect(markdown).toContain('@startuml');
+      expect(markdown).toContain('@enduml');
+      expect(markdown).toContain('Introduction');
+      expect(markdown).toContain('Conclusion');
+    });
+
+    it('should handle multiple PlantUML macros', async () => {
+      const page: ConfluencePage = {
+        id: '12345',
+        title: 'Multiple Diagrams',
+        spaceKey: 'TEST',
+        content: `
+<ac:structured-macro ac:name="plantuml">
+  <ac:parameter ac:name="title">Diagram 1</ac:parameter>
+  <ac:plain-text-body><![CDATA[@startuml\nA -> B\n@enduml]]></ac:plain-text-body>
+</ac:structured-macro>
+<p>Middle content</p>
+<ac:structured-macro ac:name="plantuml">
+  <ac:parameter ac:name="title">Diagram 2</ac:parameter>
+  <ac:plain-text-body><![CDATA[@startuml\nC -> D\n@enduml]]></ac:plain-text-body>
+</ac:structured-macro>
+        `,
+        version: 1,
+        lastModified: '2025-11-22T00:00:00Z',
+        author: 'test@example.com',
+        url: 'https://test.atlassian.net/wiki/spaces/TEST/pages/12345',
+        labels: []
+      };
+
+      const markdown = await converter.convertPage(page);
+
+      expect(markdown).toContain('<!-- Diagram 1 -->');
+      expect(markdown).toContain('<!-- Diagram 2 -->');
+      expect(markdown).toContain('A -> B');
+      expect(markdown).toContain('C -> D');
+      const matches = markdown.match(/```plantuml/g);
+      expect(matches).toHaveLength(2);
+    });
+
+    it('should convert PlantUML without title', async () => {
+      const page: ConfluencePage = {
+        id: '12345',
+        title: 'No Title Diagram',
+        spaceKey: 'TEST',
+        content: `
+<ac:structured-macro ac:name="plantuml">
+  <ac:plain-text-body><![CDATA[
+@startuml
+User -> System: Request
+@enduml
+  ]]></ac:plain-text-body>
+</ac:structured-macro>
+        `,
+        version: 1,
+        lastModified: '2025-11-22T00:00:00Z',
+        author: 'test@example.com',
+        url: 'https://test.atlassian.net/wiki/spaces/TEST/pages/12345',
+        labels: []
+      };
+
+      const markdown = await converter.convertPage(page);
+
+      expect(markdown).not.toContain('<!--');
+      expect(markdown).toContain('```plantuml');
+      expect(markdown).toContain('User -> System: Request');
+    });
+
+    it('should handle page with no PlantUML macros', async () => {
+      const page: ConfluencePage = {
+        id: '12345',
+        title: 'No Diagrams',
+        spaceKey: 'TEST',
+        content: '<p>Just regular text</p>',
+        version: 1,
+        lastModified: '2025-11-22T00:00:00Z',
+        author: 'test@example.com',
+        url: 'https://test.atlassian.net/wiki/spaces/TEST/pages/12345',
+        labels: []
+      };
+
+      const markdown = await converter.convertPage(page);
+
+      expect(markdown).toBe('Just regular text');
+      expect(markdown).not.toContain('```plantuml');
+    });
+  });
 });
