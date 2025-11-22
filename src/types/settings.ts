@@ -5,6 +5,7 @@ export interface PluginSettings {
 	syncPath: string;
 	attachmentsPath: string;
 	showNotifications: boolean;
+	forceFullSync: boolean;
 	oauthConfig?: OAuthConfig;
 }
 
@@ -13,6 +14,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	syncPath: 'confluence/',
 	attachmentsPath: 'attachments/',
 	showNotifications: true,
+	forceFullSync: false,
 	oauthConfig: {
 		// For development: Set your OAuth app credentials here
 		// clientId: 'your-client-id',

@@ -124,10 +124,13 @@ async function testSync() {
 
     // 4. Create SyncEngine
     console.log('4. Initializing SyncEngine...');
+    const mockApp = { vault: mockVault } as any;
     const syncEngine = new SyncEngine(
+      mockApp,
       confluenceClient,
       fileManager,
-      'confluence/'
+      'confluence/',
+      false
     );
     console.log('✓ SyncEngine initialized\n');
 
