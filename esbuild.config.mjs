@@ -31,7 +31,6 @@ const context = await esbuild.context({
 		'@lezer/common',
 		'@lezer/highlight',
 		'@lezer/lr',
-		'@modelcontextprotocol/sdk',
 		...builtins],
 	format: 'cjs',
 	target: 'es2018',
@@ -39,6 +38,7 @@ const context = await esbuild.context({
 	sourcemap: prod ? false : 'inline',
 	treeShaking: true,
 	outfile: 'main.js',
+	platform: 'node',
 });
 
 if (prod) {

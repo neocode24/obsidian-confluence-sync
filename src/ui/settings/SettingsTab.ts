@@ -4,12 +4,18 @@ import { ConfluenceClient, TenantConfig, MCPConnectionError, OAuthError } from '
 
 export class ConfluenceSettingsTab extends PluginSettingTab {
 	plugin: ConfluenceSyncPlugin;
-	private confluenceClient: ConfluenceClient;
+	private confluenceClient: ConfluenceClient | null = null;
 
 	constructor(app: App, plugin: ConfluenceSyncPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
-		this.confluenceClient = new ConfluenceClient();
+	}
+
+	private initializeClient(): void {
+		if (!this.plugin.settings.oauthConfig?.clientId || !this.plugin.settings.oauthConfig?.clientSecret) {
+			return;
+		}
+		this.confluenceClient = new ConfluenceClient(this.plugin.settings.oauthConfig);
 	}
 
 	display(): void {
@@ -18,11 +24,122 @@ export class ConfluenceSettingsTab extends PluginSettingTab {
 
 		containerEl.createEl('h2', { text: 'Confluence Sync 설정' });
 
+		// Initialize client if we have saved credentials
+		if (!this.confluenceClient && this.plugin.settings.oauthConfig?.clientId && this.plugin.settings.oauthConfig?.clientSecret) {
+			this.initializeClient();
+		}
+
+		// Restore tenant state if we have a saved authenticated tenant
+		if (this.confluenceClient && this.plugin.settings.tenants.length > 0) {
+			const savedTenant = this.plugin.settings.tenants[0];
+			if (savedTenant.oauthToken) {
+				// Directly restore tenant without calling initialize()
+				// to preserve the OAuth token
+				this.confluenceClient.restoreTenant(savedTenant);
+			}
+		}
+
+		// OAuth Configuration Section
+		this.displayOAuthSection(containerEl);
+
 		// Tenant Configuration Section
 		this.displayTenantSection(containerEl);
 
 		// Connection Status
 		this.displayConnectionStatus(containerEl);
+	}
+
+	private displayOAuthSection(containerEl: HTMLElement): void {
+		containerEl.createEl('h3', { text: 'OAuth 설정' });
+		containerEl.createEl('p', {
+			text: 'Atlassian Developer Console에서 OAuth 앱을 등록하고 credentials를 입력하세요.',
+			cls: 'setting-item-description'
+		});
+
+		// Client ID
+		new Setting(containerEl)
+			.setName('Client ID')
+			.setDesc('OAuth 앱의 Client ID (Atlassian Developer Console에서 발급)')
+			.addText(text => text
+				.setPlaceholder('예: JxHnedI71sZewJI9KjZc8ayU3YYU4aPH')
+				.setValue(this.plugin.settings.oauthConfig?.clientId || '')
+				.onChange(async (value) => {
+					if (!this.plugin.settings.oauthConfig) {
+						this.plugin.settings.oauthConfig = {
+							clientId: value,
+							clientSecret: '',
+							redirectUri: 'http://localhost:8080/callback',
+							scope: 'read:confluence-content.all write:confluence-content read:confluence-space.summary offline_access'
+						};
+					} else {
+						this.plugin.settings.oauthConfig.clientId = value;
+					}
+					await this.plugin.saveSettings();
+					this.initializeClient();
+				})
+			);
+
+		// Client Secret
+		new Setting(containerEl)
+			.setName('Client Secret')
+			.setDesc('OAuth 앱의 Client Secret (안전하게 저장됩니다)')
+			.addText(text => {
+				text.inputEl.type = 'password';
+				return text
+					.setPlaceholder('ATOAtF9WM-zMC...')
+					.setValue(this.plugin.settings.oauthConfig?.clientSecret || '')
+					.onChange(async (value) => {
+						if (!this.plugin.settings.oauthConfig) {
+							this.plugin.settings.oauthConfig = {
+								clientId: '',
+								clientSecret: value,
+								redirectUri: 'http://localhost:8080/callback',
+								scope: 'read:confluence-content.all write:confluence-content read:confluence-space.summary offline_access'
+							};
+						} else {
+							this.plugin.settings.oauthConfig.clientSecret = value;
+						}
+						await this.plugin.saveSettings();
+						this.initializeClient();
+					});
+			});
+
+		// Advanced Settings
+		containerEl.createEl('details', {}, (details) => {
+			details.createEl('summary', { text: '고급 설정' });
+
+			// Redirect URI
+			new Setting(details)
+				.setName('Redirect URI')
+				.setDesc('OAuth callback을 받을 URI (기본값 사용 권장)')
+				.addText(text => text
+					.setPlaceholder('http://localhost:8080/callback')
+					.setValue(this.plugin.settings.oauthConfig?.redirectUri || 'http://localhost:8080/callback')
+					.onChange(async (value) => {
+						if (this.plugin.settings.oauthConfig) {
+							this.plugin.settings.oauthConfig.redirectUri = value;
+							await this.plugin.saveSettings();
+							this.initializeClient();
+						}
+					})
+				);
+
+			// OAuth Scope
+			new Setting(details)
+				.setName('OAuth Scope')
+				.setDesc('OAuth 권한 범위 (기본값: Confluence read/write)')
+				.addTextArea(text => text
+					.setPlaceholder('read:confluence-content.all write:confluence-content ...')
+					.setValue(this.plugin.settings.oauthConfig?.scope || 'read:confluence-content.all write:confluence-content read:confluence-space.summary offline_access')
+					.onChange(async (value) => {
+						if (this.plugin.settings.oauthConfig) {
+							this.plugin.settings.oauthConfig.scope = value;
+							await this.plugin.saveSettings();
+							this.initializeClient();
+						}
+					})
+				);
+		});
 	}
 
 	private displayTenantSection(containerEl: HTMLElement): void {
@@ -67,8 +184,8 @@ export class ConfluenceSettingsTab extends PluginSettingTab {
 	private displayConnectionStatus(containerEl: HTMLElement): void {
 		const statusContainer = containerEl.createDiv('confluence-connection-status');
 
-		const isConnected = this.confluenceClient.isConnected();
-		const tenant = this.confluenceClient.getCurrentTenant();
+		const isConnected = this.confluenceClient?.isConnected() || false;
+		const tenant = this.confluenceClient?.getCurrentTenant();
 
 		if (isConnected && tenant) {
 			statusContainer.createEl('p', {
@@ -84,6 +201,12 @@ export class ConfluenceSettingsTab extends PluginSettingTab {
 	}
 
 	private async handleConnect(): Promise<void> {
+		// Check OAuth config
+		if (!this.plugin.settings.oauthConfig?.clientId || !this.plugin.settings.oauthConfig?.clientSecret) {
+			new Notice('⚠️ OAuth Client ID와 Client Secret을 먼저 입력해주세요.');
+			return;
+		}
+
 		const tenants = this.plugin.settings.tenants;
 
 		if (tenants.length === 0 || !tenants[0].url) {
@@ -94,15 +217,31 @@ export class ConfluenceSettingsTab extends PluginSettingTab {
 		const tenant = tenants[0];
 
 		try {
-			new Notice('🔄 MCP Server 연결 중...');
+			// Initialize client if not already done
+			if (!this.confluenceClient) {
+				this.initializeClient();
+			}
 
-			// Initialize MCP client
+			if (!this.confluenceClient) {
+				throw new Error('Failed to initialize Confluence client');
+			}
+
+			new Notice('🔄 Confluence 연결 중...');
+
+			// Initialize client with tenant config
 			await this.confluenceClient.initialize(tenant);
 
 			new Notice('🔄 OAuth 인증 시작 중...');
 
 			// Initiate OAuth flow
 			await this.confluenceClient.initiateOAuth();
+
+			// Save updated tenant with OAuth token to plugin settings
+			const updatedTenant = this.confluenceClient.getCurrentTenant();
+			if (updatedTenant) {
+				this.plugin.settings.tenants[0] = updatedTenant;
+				await this.plugin.saveSettings();
+			}
 
 			// Refresh status display
 			this.display();
