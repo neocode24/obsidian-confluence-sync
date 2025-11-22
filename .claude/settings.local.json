@@ -15,7 +15,9 @@
       "Bash(npm run build:*)",
       "Bash(git checkout:*)",
       "Bash(git add:*)",
-      "Bash(gh issue close:*)"
+      "Bash(gh issue close:*)",
+      "Bash(gh issue list:*)",
+      "Bash(git commit:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

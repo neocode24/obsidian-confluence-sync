@@ -18005,14 +18005,15 @@ var ConfluenceClient = class {
    * Search Confluence pages using CQL query
    * @param cql CQL query string (default: creator = currentUser() AND type = page)
    * @param limit Maximum number of results (default: 50, max: 100)
+   * @param retryCount Internal parameter for retry logic
    * @returns Array of ConfluencePage objects
    */
-  async searchPages(cql = "creator = currentUser() AND type = page", limit = 50) {
-    var _a, _b, _c;
+  async searchPages(cql = "creator = currentUser() AND type = page", limit = 50, retryCount = 0) {
+    var _a, _b, _c, _d;
     if (!((_a = this.currentTenant) == null ? void 0 : _a.cloudId)) {
       throw new MCPConnectionError("Tenant not initialized or cloudId missing");
     }
-    if (!this.isConnected()) {
+    if (!((_b = this.currentTenant) == null ? void 0 : _b.oauthToken)) {
       throw new OAuthError("Not authenticated. Please connect to Confluence first.");
     }
     try {
@@ -18045,6 +18046,16 @@ var ConfluenceClient = class {
       if (error.status) {
         switch (error.status) {
           case 401:
+            if (retryCount === 0) {
+              this.logger.warn("401 error, attempting token refresh and retry");
+              try {
+                await this.refreshAccessToken();
+                return await this.searchPages(cql, limit, 1);
+              } catch (refreshError) {
+                this.logger.error("Token refresh failed during retry", refreshError);
+                throw new OAuthError("Authentication failed. Please reconnect from Settings.");
+              }
+            }
             throw new OAuthError("Authentication failed. Token may be expired.");
           case 403:
             throw new PermissionError("Permission denied. Check Confluence access permissions.");
@@ -18059,7 +18070,7 @@ var ConfluenceClient = class {
             );
         }
       }
-      if (((_b = error.message) == null ? void 0 : _b.includes("network")) || ((_c = error.message) == null ? void 0 : _c.includes("timeout"))) {
+      if (((_c = error.message) == null ? void 0 : _c.includes("network")) || ((_d = error.message) == null ? void 0 : _d.includes("timeout"))) {
         throw new NetworkError(`Network error: ${error.message}`);
       }
       if (error instanceof MCPConnectionError || error instanceof OAuthError || error instanceof NetworkError || error instanceof ConfluenceAPIError || error instanceof PermissionError) {
@@ -18099,14 +18110,15 @@ var ConfluenceClient = class {
   /**
    * Get attachments for a Confluence page
    * @param pageId Confluence page ID
+   * @param retryCount Internal parameter for retry logic
    * @returns Array of attachments
    */
-  async getAttachments(pageId) {
-    var _a;
+  async getAttachments(pageId, retryCount = 0) {
+    var _a, _b;
     if (!((_a = this.currentTenant) == null ? void 0 : _a.cloudId)) {
       throw new MCPConnectionError("Tenant not initialized or cloudId missing");
     }
-    if (!this.isConnected()) {
+    if (!((_b = this.currentTenant) == null ? void 0 : _b.oauthToken)) {
       throw new OAuthError("Not authenticated. Please connect to Confluence first.");
     }
     try {
@@ -18125,12 +18137,12 @@ var ConfluenceClient = class {
       const attachments = data.results || [];
       this.logger.debug("Attachments fetched", { count: attachments.length });
       return attachments.map((att) => {
-        var _a2, _b, _c;
+        var _a2, _b2, _c;
         return {
           id: att.id,
           title: att.title,
           mediaType: ((_a2 = att.metadata) == null ? void 0 : _a2.mediaType) || "application/octet-stream",
-          fileSize: ((_b = att.extensions) == null ? void 0 : _b.fileSize) || 0,
+          fileSize: ((_b2 = att.extensions) == null ? void 0 : _b2.fileSize) || 0,
           downloadUrl: ((_c = att._links) == null ? void 0 : _c.download) || "",
           pageId
         };
@@ -18138,6 +18150,16 @@ var ConfluenceClient = class {
     } catch (error) {
       this.logger.error("Failed to fetch attachments", { pageId, error });
       if (error.status === 401) {
+        if (retryCount === 0) {
+          this.logger.warn("401 error on getAttachments, attempting token refresh and retry");
+          try {
+            await this.refreshAccessToken();
+            return await this.getAttachments(pageId, 1);
+          } catch (refreshError) {
+            this.logger.error("Token refresh failed during retry", refreshError);
+            throw new OAuthError("Authentication failed. Please reconnect from Settings.");
+          }
+        }
         throw new OAuthError("Authentication failed");
       }
       if (error.status === 403) {
@@ -18155,13 +18177,15 @@ var ConfluenceClient = class {
   /**
    * Download attachment binary data
    * @param downloadUrl Attachment download URL (relative path)
+   * @param retryCount Internal parameter for retry logic
    * @returns ArrayBuffer containing file data
    */
-  async downloadAttachment(downloadUrl) {
+  async downloadAttachment(downloadUrl, retryCount = 0) {
+    var _a;
     if (!this.currentTenant) {
       throw new MCPConnectionError("No active tenant connection");
     }
-    if (!this.isConnected()) {
+    if (!((_a = this.currentTenant) == null ? void 0 : _a.oauthToken)) {
       throw new OAuthError("Not authenticated. Please connect to Confluence first.");
     }
     try {
@@ -18179,6 +18203,16 @@ var ConfluenceClient = class {
     } catch (error) {
       this.logger.error("Failed to download attachment", { downloadUrl, error });
       if (error.status === 401) {
+        if (retryCount === 0) {
+          this.logger.warn("401 error on downloadAttachment, attempting token refresh and retry");
+          try {
+            await this.refreshAccessToken();
+            return await this.downloadAttachment(downloadUrl, 1);
+          } catch (refreshError) {
+            this.logger.error("Token refresh failed during retry", refreshError);
+            throw new OAuthError("Authentication failed. Please reconnect from Settings.");
+          }
+        }
         throw new OAuthError("Authentication failed");
       }
       if (error.status === 404) {
