@@ -17,7 +17,9 @@
       "Bash(git add:*)",
       "Bash(gh issue close:*)",
       "Bash(gh issue list:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(gh pr create --title \"fix: Add automatic token refresh retry on 401 errors\" --body \"$(cat <<''EOF''\n## Problem\nAfter OAuth reconnection, sync still failed with:\n```\n[ERROR] [SyncEngine] Sync operation failed {error: ''Authentication failed. Token may be expired.''}\n```\n\nRoot cause:\n1. `isConnected()` only checked `expiresAt > Date.now()`, but didn''t verify token validity\n2. When API call returned 401, no retry mechanism existed\n3. Token refresh was attempted in `getAccessToken()` but too late (after token already used)\n\n## Solution\nAdded automatic retry with token refresh on 401 errors for all API methods:\n\n### Changed Methods\n- `searchPages()`: Added `retryCount` parameter, retry once on 401\n- `getAttachments()`: Added `retryCount` parameter, retry once on 401\n- `downloadAttachment()`: Added `retryCount` parameter, retry once on 401\n\n### Retry Flow\n1. API call returns 401 → Catch error\n2. If `retryCount === 0`:\n   - Log warning: \"401 error, attempting token refresh and retry\"\n   - Call `refreshAccessToken()`\n   - Retry the same method with `retryCount = 1`\n3. If refresh fails or `retryCount > 0`:\n   - Throw OAuthError with clear message: \"Please reconnect from Settings\"\n\n### Error Handling\n- First 401: Auto-retry with refresh\n- Second 401: User must reconnect\n- Refresh failure: Clear error message with action required\n\n## Testing\nUser should test:\n1. ✅ Sync after OAuth reconnection\n2. ✅ Verify logs show \"401 error, attempting token refresh and retry\"\n3. ✅ Sync completes successfully after auto-refresh\n4. ✅ Token saved to settings after refresh\n\n## Log Example\n```\n[DEBUG] Token expiry check {expiresAt: ''2025-11-22T11:00:00Z'', timeUntilExpiry: -120}\n[WARN] 401 error, attempting token refresh and retry\n[INFO] Access token refreshed successfully {expiresAt: ''2025-11-22T12:00:00Z''}\n[INFO] Pages fetched {count: 15}\n```\nEOF\n)\")"
     ]
   },
   "enableAllProjectMcpServers": true,

@@ -17933,7 +17933,9 @@ var ConfluenceClient = class {
     const now = Date.now();
     const expiresAt = this.currentTenant.oauthToken.expiresAt;
     const timeUntilExpiry = expiresAt - now;
+    const tokenPreview = this.currentTenant.oauthToken.accessToken.substring(0, 20) + "...";
     this.logger.debug("Token expiry check", {
+      tokenPreview,
       expiresAt: new Date(expiresAt).toISOString(),
       timeUntilExpiry: Math.floor(timeUntilExpiry / 1e3)
     });
@@ -17946,6 +17948,7 @@ var ConfluenceClient = class {
         throw new OAuthError(`Failed to refresh token: ${error instanceof Error ? error.message : "Unknown error"}`);
       }
     }
+    this.logger.debug("Returning access token", { tokenPreview });
     return this.currentTenant.oauthToken.accessToken;
   }
   /**
@@ -18050,12 +18053,14 @@ var ConfluenceClient = class {
               this.logger.warn("401 error, attempting token refresh and retry");
               try {
                 await this.refreshAccessToken();
+                this.logger.debug("Token refresh completed, retrying searchPages");
                 return await this.searchPages(cql, limit, 1);
               } catch (refreshError) {
                 this.logger.error("Token refresh failed during retry", refreshError);
                 throw new OAuthError("Authentication failed. Please reconnect from Settings.");
               }
             }
+            this.logger.warn("Second 401 error after retry, giving up");
             throw new OAuthError("Authentication failed. Token may be expired.");
           case 403:
             throw new PermissionError("Permission denied. Check Confluence access permissions.");
