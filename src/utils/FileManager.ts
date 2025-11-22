@@ -1,5 +1,6 @@
 import { Notice, TFile, Vault } from 'obsidian';
 import { FileWriteError } from '../types/errors';
+import { parseFileContent, extractFrontmatter, CONFLUENCE_START_MARKER, CONFLUENCE_END_MARKER } from './ContentRegionParser';
 
 /**
  * Obsidian Vault 파일 시스템 작업 관리
@@ -10,7 +11,7 @@ export class FileManager {
   /**
    * 파일을 Vault에 저장
    * @param filePath Vault 내 상대 경로 (예: "confluence/page.md")
-   * @param content 파일 내용
+   * @param content 파일 내용 (frontmatter + Confluence content with markers)
    */
   async writeFile(filePath: string, content: string): Promise<void> {
     try {
@@ -31,12 +32,17 @@ export class FileManager {
       // 파일 존재 여부 확인
       const existingFile = this.vault.getAbstractFileByPath(filePath);
 
+      let finalContent = content;
+
       if (existingFile instanceof TFile) {
-        // 파일이 이미 존재하면 수정
-        await this.vault.modify(existingFile, content);
+        // 기존 파일이 있으면 로컬 메모 영역 보존
+        const existingContent = await this.vault.read(existingFile);
+        finalContent = this.mergeWithLocalNotes(content, existingContent);
+        await this.vault.modify(existingFile, finalContent);
       } else {
-        // 새 파일 생성
-        await this.vault.create(filePath, content);
+        // 신규 파일 생성 시 로컬 메모 템플릿 추가
+        finalContent = this.addLocalNotesTemplate(content);
+        await this.vault.create(filePath, finalContent);
       }
 
       new Notice(`✓ File saved: ${filePath}`);
@@ -52,6 +58,40 @@ export class FileManager {
         { filePath, error }
       );
     }
+  }
+
+  /**
+   * 기존 파일의 로컬 메모 영역을 새 콘텐츠와 병합
+   * @param newContent 새로운 Confluence 콘텐츠 (frontmatter + markers 포함)
+   * @param existingContent 기존 파일 콘텐츠
+   * @returns 병합된 콘텐츠
+   */
+  private mergeWithLocalNotes(newContent: string, existingContent: string): string {
+    // existingContent가 없거나 undefined인 경우 템플릿만 추가
+    if (!existingContent) {
+      return this.addLocalNotesTemplate(newContent);
+    }
+
+    // 기존 파일에서 로컬 메모 영역 추출
+    const parsed = parseFileContent(existingContent);
+
+    // 로컬 메모가 있으면 새 콘텐츠에 추가
+    if (parsed.localNotes) {
+      return `${newContent}\n\n${parsed.localNotes}`;
+    }
+
+    // 로컬 메모가 없으면 템플릿 추가
+    return this.addLocalNotesTemplate(newContent);
+  }
+
+  /**
+   * 신규 파일에 로컬 메모 템플릿 추가
+   * @param content Confluence 콘텐츠 (frontmatter + markers 포함)
+   * @returns 로컬 메모 템플릿이 추가된 콘텐츠
+   */
+  private addLocalNotesTemplate(content: string): string {
+    const template = `\n## Local Notes\n\n<!-- Add your personal notes here -->\n\n## Backlinks\n\n<!-- Link to related notes using [[Note Name]] -->`;
+    return `${content}${template}`;
   }
 
   /**
