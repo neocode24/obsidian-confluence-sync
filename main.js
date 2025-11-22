@@ -228,6 +228,13 @@ var ConfluenceClient = class {
     return this.currentTenant;
   }
   /**
+   * Restore tenant state (for settings persistence)
+   */
+  restoreTenant(tenant) {
+    this.currentTenant = tenant;
+    console.log("Tenant state restored:", tenant.url);
+  }
+  /**
    * Get access token (refresh if needed)
    */
   async getAccessToken() {
@@ -303,9 +310,7 @@ var ConfluenceSettingsTab = class extends import_obsidian2.PluginSettingTab {
     if (this.confluenceClient && this.plugin.settings.tenants.length > 0) {
       const savedTenant = this.plugin.settings.tenants[0];
       if (savedTenant.oauthToken) {
-        this.confluenceClient.initialize(savedTenant).catch((err) => {
-          console.error("Failed to restore tenant:", err);
-        });
+        this.confluenceClient.restoreTenant(savedTenant);
       }
     }
     this.displayOAuthSection(containerEl);
@@ -486,6 +491,9 @@ var DEFAULT_SETTINGS = {
   attachmentsPath: "attachments/",
   showNotifications: true,
   oauthConfig: {
+    // For development: Set your OAuth app credentials here
+    // clientId: 'your-client-id',
+    // clientSecret: 'your-client-secret',
     clientId: "",
     clientSecret: "",
     redirectUri: "http://localhost:8080/callback",

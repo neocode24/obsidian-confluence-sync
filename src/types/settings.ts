@@ -14,6 +14,9 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	attachmentsPath: 'attachments/',
 	showNotifications: true,
 	oauthConfig: {
+		// For development: Set your OAuth app credentials here
+		// clientId: 'your-client-id',
+		// clientSecret: 'your-client-secret',
 		clientId: '',
 		clientSecret: '',
 		redirectUri: 'http://localhost:8080/callback',

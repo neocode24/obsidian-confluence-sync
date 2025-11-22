@@ -33,9 +33,9 @@ export class ConfluenceSettingsTab extends PluginSettingTab {
 		if (this.confluenceClient && this.plugin.settings.tenants.length > 0) {
 			const savedTenant = this.plugin.settings.tenants[0];
 			if (savedTenant.oauthToken) {
-				this.confluenceClient.initialize(savedTenant).catch((err: Error) => {
-					console.error('Failed to restore tenant:', err);
-				});
+				// Directly restore tenant without calling initialize()
+				// to preserve the OAuth token
+				this.confluenceClient.restoreTenant(savedTenant);
 			}
 		}
 

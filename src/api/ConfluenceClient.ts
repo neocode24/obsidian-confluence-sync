@@ -249,6 +249,14 @@ export class ConfluenceClient {
 	}
 
 	/**
+	 * Restore tenant state (for settings persistence)
+	 */
+	restoreTenant(tenant: TenantConfig): void {
+		this.currentTenant = tenant;
+		console.log('Tenant state restored:', tenant.url);
+	}
+
+	/**
 	 * Get access token (refresh if needed)
 	 */
 	async getAccessToken(): Promise<string> {
