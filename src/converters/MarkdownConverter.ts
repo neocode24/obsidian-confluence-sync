@@ -1,6 +1,8 @@
 import TurndownService from 'turndown';
 import { ConfluencePage } from '../types/confluence';
 import { PlantUMLParser } from './PlantUMLParser';
+import { DrawioParser } from './DrawioParser';
+import { FileManager } from '../utils/FileManager';
 
 /**
  * Confluence Storage Format HTML을 Obsidian 호환 마크다운으로 변환
@@ -8,6 +10,7 @@ import { PlantUMLParser } from './PlantUMLParser';
 export class MarkdownConverter {
   private turndown: TurndownService;
   private plantUMLParser: PlantUMLParser;
+  private drawioParser: DrawioParser;
 
   constructor() {
     this.turndown = new TurndownService({
@@ -19,6 +22,7 @@ export class MarkdownConverter {
     });
 
     this.plantUMLParser = new PlantUMLParser();
+    this.drawioParser = new DrawioParser();
     this.configureTurndown();
   }
 
@@ -70,30 +74,49 @@ export class MarkdownConverter {
   /**
    * Confluence 페이지를 마크다운으로 변환
    * @param page Confluence 페이지 객체
+   * @param pageSlug 페이지 슬러그 (Draw.io 파일명 생성용)
+   * @param fileManager FileManager 인스턴스 (Draw.io 파일 저장용, optional)
    * @returns 변환된 마크다운 문자열
    */
-  async convertPage(page: ConfluencePage): Promise<string> {
+  async convertPage(page: ConfluencePage, pageSlug?: string, fileManager?: FileManager): Promise<string> {
     if (!page.content || page.content.trim() === '') {
       return '';
     }
 
     try {
-      // 1. PlantUML 매크로 추출 (HTML → Markdown 변환 전)
-      const plantUMLMacros = this.plantUMLParser.extractMacros(page.content);
-
       let processedContent = page.content;
 
-      // 2. PlantUML 매크로가 있으면 플레이스홀더로 치환
+      // 1. PlantUML 매크로 추출 및 치환
+      const plantUMLMacros = this.plantUMLParser.extractMacros(processedContent);
       if (plantUMLMacros.length > 0) {
-        processedContent = this.plantUMLParser.replaceWithPlaceholders(page.content, plantUMLMacros);
+        processedContent = this.plantUMLParser.replaceWithPlaceholders(processedContent, plantUMLMacros);
+      }
+
+      // 2. Draw.io 매크로 추출 및 파일 저장
+      const drawioMacros = this.drawioParser.extractMacros(processedContent);
+      const drawioFilenames: string[] = [];
+
+      if (drawioMacros.length > 0 && pageSlug && fileManager) {
+        // Draw.io 파일 저장 및 플레이스홀더 치환
+        for (let i = 0; i < drawioMacros.length; i++) {
+          const filename = this.drawioParser.generateFilename(pageSlug, i);
+          await fileManager.writeDrawioFile(filename, drawioMacros[i].xml);
+          drawioFilenames.push(filename);
+        }
+        processedContent = this.drawioParser.replaceWithPlaceholders(processedContent, drawioMacros);
       }
 
       // 3. Turndown으로 HTML → Markdown 변환
       let markdown = this.turndown.turndown(processedContent);
 
-      // 4. 플레이스홀더를 코드 블록으로 복원
+      // 4. PlantUML 플레이스홀더를 코드 블록으로 복원
       if (plantUMLMacros.length > 0) {
         markdown = this.plantUMLParser.restorePlaceholders(markdown, plantUMLMacros);
+      }
+
+      // 5. Draw.io 플레이스홀더를 임베딩 코드로 복원
+      if (drawioFilenames.length > 0) {
+        markdown = this.drawioParser.restorePlaceholders(markdown, drawioFilenames);
       }
 
       return markdown.trim();
