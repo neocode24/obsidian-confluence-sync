@@ -27,23 +27,234 @@ __export(main_exports, {
   default: () => ConfluenceSyncPlugin
 });
 module.exports = __toCommonJS(main_exports);
+var import_obsidian3 = require("obsidian");
+
+// src/ui/settings/SettingsTab.ts
+var import_obsidian2 = require("obsidian");
+
+// src/api/ConfluenceClient.ts
+var import_client = require("@modelcontextprotocol/sdk/client/index.js");
+var import_stdio = require("@modelcontextprotocol/sdk/client/stdio.js");
 var import_obsidian = require("obsidian");
-var ConfluenceSyncPlugin = class extends import_obsidian.Plugin {
+var MCPConnectionError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "MCPConnectionError";
+  }
+};
+var OAuthError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "OAuthError";
+  }
+};
+var ConfluenceClient = class {
+  constructor() {
+    this.mcpClient = null;
+    this.currentTenant = null;
+  }
+  /**
+   * Initialize MCP client connection for a specific tenant
+   */
+  async initialize(tenantConfig) {
+    try {
+      const transport = new import_stdio.StdioClientTransport({
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-atlassian"],
+        env: {
+          ATLASSIAN_INSTANCE_URL: tenantConfig.url
+        }
+      });
+      this.mcpClient = new import_client.Client({
+        name: "confluence-sync-client",
+        version: "0.1.0"
+      }, {
+        capabilities: {}
+      });
+      await this.mcpClient.connect(transport);
+      this.currentTenant = tenantConfig;
+      console.log(`MCP Client connected to ${tenantConfig.url}`);
+    } catch (error) {
+      console.error("Failed to initialize MCP client:", error);
+      throw new MCPConnectionError(
+        `MCP Server \uC5F0\uACB0 \uC2E4\uD328: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
+    }
+  }
+  /**
+   * Initiate OAuth flow - opens browser for user authentication
+   */
+  async initiateOAuth() {
+    if (!this.mcpClient) {
+      throw new MCPConnectionError("MCP Client\uAC00 \uCD08\uAE30\uD654\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.");
+    }
+    try {
+      const result = await this.mcpClient.request({
+        method: "tools/call",
+        params: {
+          name: "confluence_auth_start",
+          arguments: {}
+        }
+      }, {});
+      console.log("OAuth flow initiated:", result);
+      new import_obsidian.Notice("\u2705 Confluence \uC778\uC99D \uC131\uACF5!");
+    } catch (error) {
+      console.error("OAuth flow failed:", error);
+      throw new OAuthError(
+        `OAuth \uC778\uC99D \uC2E4\uD328: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
+    }
+  }
+  /**
+   * Check if client is connected and authenticated
+   */
+  isConnected() {
+    return this.mcpClient !== null && this.currentTenant !== null;
+  }
+  /**
+   * Get current tenant configuration
+   */
+  getCurrentTenant() {
+    return this.currentTenant;
+  }
+  /**
+   * Disconnect MCP client
+   */
+  async disconnect() {
+    if (this.mcpClient) {
+      await this.mcpClient.close();
+      this.mcpClient = null;
+      this.currentTenant = null;
+    }
+  }
+};
+
+// src/ui/settings/SettingsTab.ts
+var ConfluenceSettingsTab = class extends import_obsidian2.PluginSettingTab {
+  constructor(app, plugin) {
+    super(app, plugin);
+    this.plugin = plugin;
+    this.confluenceClient = new ConfluenceClient();
+  }
+  display() {
+    const { containerEl } = this;
+    containerEl.empty();
+    containerEl.createEl("h2", { text: "Confluence Sync \uC124\uC815" });
+    this.displayTenantSection(containerEl);
+    this.displayConnectionStatus(containerEl);
+  }
+  displayTenantSection(containerEl) {
+    containerEl.createEl("h3", { text: "Confluence \uC5F0\uACB0" });
+    new import_obsidian2.Setting(containerEl).setName("Confluence URL").setDesc("Confluence \uC778\uC2A4\uD134\uC2A4 URL (\uC608: https://yourcompany.atlassian.net)").addText(
+      (text) => {
+        var _a;
+        return text.setPlaceholder("https://yourcompany.atlassian.net").setValue(((_a = this.plugin.settings.tenants[0]) == null ? void 0 : _a.url) || "").onChange(async (value) => {
+          if (this.plugin.settings.tenants.length === 0) {
+            this.plugin.settings.tenants.push({
+              id: this.generateTenantId(),
+              name: "Default Tenant",
+              url: value,
+              enabled: true
+            });
+          } else {
+            this.plugin.settings.tenants[0].url = value;
+          }
+          await this.plugin.saveSettings();
+        });
+      }
+    );
+    new import_obsidian2.Setting(containerEl).setName("Confluence \uC5F0\uACB0").setDesc("OAuth \uC778\uC99D\uC744 \uC2DC\uC791\uD569\uB2C8\uB2E4 (\uBE0C\uB77C\uC6B0\uC800\uAC00 \uC5F4\uB9BD\uB2C8\uB2E4)").addButton(
+      (button) => button.setButtonText("\uC5F0\uACB0").setCta().onClick(async () => {
+        await this.handleConnect();
+      })
+    );
+  }
+  displayConnectionStatus(containerEl) {
+    const statusContainer = containerEl.createDiv("confluence-connection-status");
+    const isConnected = this.confluenceClient.isConnected();
+    const tenant = this.confluenceClient.getCurrentTenant();
+    if (isConnected && tenant) {
+      statusContainer.createEl("p", {
+        text: `\u2705 \uC5F0\uACB0\uB428: ${tenant.url}`,
+        cls: "confluence-status-connected"
+      });
+    } else {
+      statusContainer.createEl("p", {
+        text: "\u274C \uC5F0\uACB0 \uC548 \uB428",
+        cls: "confluence-status-disconnected"
+      });
+    }
+  }
+  async handleConnect() {
+    const tenants = this.plugin.settings.tenants;
+    if (tenants.length === 0 || !tenants[0].url) {
+      new import_obsidian2.Notice("\u26A0\uFE0F Confluence URL\uC744 \uBA3C\uC800 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+      return;
+    }
+    const tenant = tenants[0];
+    try {
+      new import_obsidian2.Notice("\u{1F504} MCP Server \uC5F0\uACB0 \uC911...");
+      await this.confluenceClient.initialize(tenant);
+      new import_obsidian2.Notice("\u{1F504} OAuth \uC778\uC99D \uC2DC\uC791 \uC911...");
+      await this.confluenceClient.initiateOAuth();
+      this.display();
+    } catch (error) {
+      if (error instanceof MCPConnectionError) {
+        new import_obsidian2.Notice(`\u274C MCP Server \uC5F0\uACB0 \uC2E4\uD328
+
+${error.message}
+
+MCP Server\uAC00 \uC2E4\uD589 \uC911\uC778\uC9C0 \uD655\uC778\uD558\uC138\uC694.`, 1e4);
+      } else if (error instanceof OAuthError) {
+        new import_obsidian2.Notice(`\u274C OAuth \uC778\uC99D \uC2E4\uD328
+
+${error.message}
+
+\uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.`, 1e4);
+      } else {
+        new import_obsidian2.Notice(`\u274C \uC5F0\uACB0 \uC2E4\uD328: ${error instanceof Error ? error.message : "Unknown error"}`, 1e4);
+      }
+      console.error("Connection error:", error);
+    }
+  }
+  generateTenantId() {
+    return `tenant-${Date.now()}`;
+  }
+};
+
+// src/types/settings.ts
+var DEFAULT_SETTINGS = {
+  tenants: [],
+  syncPath: "confluence/",
+  attachmentsPath: "attachments/",
+  showNotifications: true
+};
+
+// main.ts
+var ConfluenceSyncPlugin = class extends import_obsidian3.Plugin {
   constructor(app, manifest) {
     super(app, manifest);
   }
   async onload() {
     console.log("Loading Confluence Sync plugin");
+    await this.loadSettings();
+    this.addSettingTab(new ConfluenceSettingsTab(this.app, this));
     this.addCommand({
       id: "test-confluence-sync",
       name: "Test Confluence Sync",
       callback: () => {
-        new import_obsidian.Notice("Confluence Sync plugin is working! \u{1F389}");
+        new import_obsidian3.Notice("Confluence Sync plugin is working! \u{1F389}");
       }
     });
-    new import_obsidian.Notice("Confluence Sync plugin loaded successfully!");
+    new import_obsidian3.Notice("Confluence Sync plugin loaded successfully!");
   }
   onunload() {
     console.log("Unloading Confluence Sync plugin");
+  }
+  async loadSettings() {
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+  }
+  async saveSettings() {
+    await this.saveData(this.settings);
   }
 };
