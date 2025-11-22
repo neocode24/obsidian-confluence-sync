@@ -162,4 +162,51 @@ export class FileManager {
       );
     }
   }
+
+  /**
+   * Draw.io 파일을 attachments 폴더에 저장
+   * @param filename 파일명 (예: "page-diagram-0.drawio")
+   * @param xml Draw.io XML 데이터
+   * @param attachmentsFolder attachments 폴더 경로 (기본: "confluence/attachments")
+   */
+  async writeDrawioFile(filename: string, xml: string, attachmentsFolder: string = 'confluence/attachments'): Promise<void> {
+    try {
+      // Path traversal 공격 방지
+      if (filename.includes('../') || filename.includes('..\\')) {
+        throw new FileWriteError(
+          'Invalid filename: path traversal detected',
+          { filename }
+        );
+      }
+
+      // attachments 폴더 생성
+      await this.ensureFolderExists(attachmentsFolder);
+
+      const filePath = `${attachmentsFolder}/${filename}`;
+
+      // 파일 존재 여부 확인
+      const existingFile = this.vault.getAbstractFileByPath(filePath);
+
+      if (existingFile instanceof TFile) {
+        // 기존 파일 덮어쓰기
+        await this.vault.modify(existingFile, xml);
+      } else {
+        // 신규 파일 생성
+        await this.vault.create(filePath, xml);
+      }
+
+      console.log(`[FileManager] Draw.io file saved: ${filePath}`);
+    } catch (error) {
+      console.error(`[FileManager] Failed to write Draw.io file ${filename}:`, error);
+
+      if (error instanceof FileWriteError) {
+        throw error;
+      }
+
+      throw new FileWriteError(
+        `Failed to write Draw.io file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        { filename, error }
+      );
+    }
+  }
 }
