@@ -5,6 +5,8 @@ import { ConfluenceClient } from './src/api/ConfluenceClient';
 import { SyncEngine } from './src/sync/SyncEngine';
 import { FileManager } from './src/utils/FileManager';
 import { CQLBuilder } from './src/utils/CQLBuilder';
+import { BackgroundChangeDetector } from './src/sync/BackgroundChangeDetector';
+import { SyncHistory } from './src/sync/SyncHistory';
 
 export default class ConfluenceSyncPlugin extends Plugin {
 	settings: PluginSettings;
@@ -58,6 +60,11 @@ export default class ConfluenceSyncPlugin extends Plugin {
 			}
 		});
 
+		// Background change detection on startup
+		if (this.settings.backgroundCheck && this.settings.backgroundCheckOnStartup) {
+			this.runBackgroundCheck();
+		}
+
 		new Notice('Confluence Sync plugin loaded successfully!');
 	}
 
@@ -71,6 +78,31 @@ export default class ConfluenceSyncPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+	}
+
+	/**
+	 * 백그라운드 변경 감지 실행
+	 */
+	private async runBackgroundCheck(): Promise<void> {
+		// Check if Confluence client is initialized and connected
+		if (!this.confluenceClient || !this.confluenceClient.isConnected()) {
+			console.log('[ConfluenceSyncPlugin] Background check skipped - not connected');
+			return;
+		}
+
+		try {
+			const syncHistory = new SyncHistory(this.app);
+			const backgroundDetector = new BackgroundChangeDetector(
+				this.confluenceClient,
+				syncHistory,
+				this.settings.filters
+			);
+
+			await backgroundDetector.checkForChanges();
+		} catch (error) {
+			// Silent failure - don't bother user
+			console.log('[ConfluenceSyncPlugin] Background check failed:', error);
+		}
 	}
 
 	/**

@@ -9,6 +9,8 @@ export interface PluginSettings {
 	forceFullSync: boolean;
 	oauthConfig?: OAuthConfig;
 	filters?: SyncFilters;
+	backgroundCheck: boolean;
+	backgroundCheckOnStartup: boolean;
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
@@ -31,5 +33,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 		spaceKeys: [],
 		labels: [],
 		rootPageIds: []
-	}
+	},
+	backgroundCheck: true,
+	backgroundCheckOnStartup: true
 };
