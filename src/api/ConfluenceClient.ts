@@ -1,6 +1,14 @@
 import { Notice, requestUrl } from 'obsidian';
 import * as http from 'http';
 import * as crypto from 'crypto';
+import { ConfluencePage, PageSearchResult } from '../types/confluence';
+import {
+	MCPConnectionError,
+	OAuthError,
+	NetworkError,
+	ConfluenceAPIError,
+	PermissionError
+} from '../types/errors';
 
 export interface OAuthToken {
 	accessToken: string;
@@ -15,20 +23,6 @@ export interface TenantConfig {
 	enabled: boolean;
 	cloudId?: string;
 	oauthToken?: OAuthToken;
-}
-
-export class MCPConnectionError extends Error {
-	constructor(message: string) {
-		super(message);
-		this.name = 'MCPConnectionError';
-	}
-}
-
-export class OAuthError extends Error {
-	constructor(message: string) {
-		super(message);
-		this.name = 'OAuthError';
-	}
 }
 
 /**
@@ -311,5 +305,128 @@ export class ConfluenceClient {
 	async disconnect(): Promise<void> {
 		this.stopCallbackServer();
 		this.currentTenant = null;
+	}
+
+	/**
+	 * Search Confluence pages using CQL query
+	 * @param cql CQL query string (default: creator = currentUser() AND type = page)
+	 * @param limit Maximum number of results (default: 50, max: 100)
+	 * @returns Array of ConfluencePage objects
+	 */
+	async searchPages(
+		cql: string = 'creator = currentUser() AND type = page',
+		limit: number = 50
+	): Promise<ConfluencePage[]> {
+		if (!this.currentTenant?.cloudId) {
+			throw new MCPConnectionError('Tenant not initialized or cloudId missing');
+		}
+
+		if (!this.isConnected()) {
+			throw new OAuthError('Not authenticated. Please connect to Confluence first.');
+		}
+
+		try {
+			const accessToken = await this.getAccessToken();
+			const baseUrl = `https://api.atlassian.com/ex/confluence/${this.currentTenant.cloudId}`;
+			const endpoint = `${baseUrl}/wiki/api/v2/search`;
+
+			// Build query parameters
+			const params = new URLSearchParams({
+				cql: cql,
+				limit: Math.min(limit, 100).toString(),
+				expand: 'body.storage,version,metadata.labels'
+			});
+
+			const url = `${endpoint}?${params.toString()}`;
+
+			console.log(`[Confluence] Searching pages with CQL: ${cql}`);
+
+			const response = await requestUrl({
+				url: url,
+				method: 'GET',
+				headers: {
+					'Authorization': `Bearer ${accessToken}`,
+					'Accept': 'application/json'
+				}
+			});
+
+			// Parse response
+			const data = response.json;
+			const pages = this.parseSearchResults(data);
+
+			console.log(`[Confluence] Found ${pages.length} pages`);
+			pages.forEach(page => {
+				console.log(`  - ID: ${page.id}, Title: "${page.title}", Space: ${page.spaceKey}`);
+			});
+
+			return pages;
+
+		} catch (error: any) {
+			// Handle HTTP errors
+			if (error.status) {
+				switch (error.status) {
+					case 401:
+						throw new OAuthError('Authentication failed. Token may be expired.');
+					case 403:
+						throw new PermissionError('Permission denied. Check Confluence access permissions.');
+					case 400:
+						throw new ConfluenceAPIError(`Invalid CQL query: ${cql}`, 400, { cql });
+					case 429:
+						throw new ConfluenceAPIError('Rate limit exceeded', 429);
+					default:
+						throw new ConfluenceAPIError(
+							`Confluence API error: ${error.message}`,
+							error.status
+						);
+				}
+			}
+
+			// Handle network errors
+			if (error.message?.includes('network') || error.message?.includes('timeout')) {
+				throw new NetworkError(`Network error: ${error.message}`);
+			}
+
+			// Rethrow if already our custom error
+			if (error instanceof MCPConnectionError ||
+			    error instanceof OAuthError ||
+			    error instanceof NetworkError ||
+			    error instanceof ConfluenceAPIError ||
+			    error instanceof PermissionError) {
+				throw error;
+			}
+
+			// Unknown error
+			throw new NetworkError(`Unexpected error: ${error.message}`);
+		}
+	}
+
+	/**
+	 * Parse Confluence API search results into ConfluencePage objects
+	 */
+	private parseSearchResults(data: any): ConfluencePage[] {
+		if (!data || !data.results) {
+			return [];
+		}
+
+		return data.results
+			.filter((result: any) => result.content?.type === 'page')
+			.map((result: any) => {
+				const content = result.content;
+				return {
+					id: content.id,
+					title: content.title,
+					spaceKey: content.space?.key || 'UNKNOWN',
+					content: content.body?.storage?.value || '',
+					version: content.version?.number || 1,
+					lastModified: content.version?.createdAt || new Date().toISOString(),
+					author: content.authorId || 'unknown',
+					url: content._links?.webui
+						? `${this.currentTenant!.url}${content._links.webui}`
+						: '',
+					labels: content.metadata?.labels?.results?.map((l: any) => l.name) || [],
+					parentId: content.parentId,
+					attachments: []
+				};
+			});
 	}
 }

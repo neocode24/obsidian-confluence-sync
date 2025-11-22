@@ -1,0 +1,73 @@
+{
+  "results": [
+    {
+      "content": {
+        "id": "123456789",
+        "type": "page",
+        "title": "API Design Guide",
+        "space": {
+          "key": "TEAM",
+          "name": "Team Space"
+        },
+        "body": {
+          "storage": {
+            "value": "<p>This is the API design guide content.</p>",
+            "representation": "storage"
+          }
+        },
+        "version": {
+          "number": 5,
+          "createdAt": "2024-11-20T14:22:00.000Z"
+        },
+        "authorId": "user123",
+        "_links": {
+          "webui": "/wiki/spaces/TEAM/pages/123456789/API+Design+Guide"
+        },
+        "metadata": {
+          "labels": {
+            "results": [
+              { "name": "api" },
+              { "name": "design" }
+            ]
+          }
+        },
+        "parentId": "987654321"
+      }
+    },
+    {
+      "content": {
+        "id": "987654321",
+        "type": "page",
+        "title": "Architecture Overview",
+        "space": {
+          "key": "DOCS",
+          "name": "Documentation"
+        },
+        "body": {
+          "storage": {
+            "value": "<h1>Architecture</h1><p>System architecture overview.</p>",
+            "representation": "storage"
+          }
+        },
+        "version": {
+          "number": 12,
+          "createdAt": "2024-11-15T10:30:00.000Z"
+        },
+        "authorId": "user456",
+        "_links": {
+          "webui": "/wiki/spaces/DOCS/pages/987654321/Architecture+Overview"
+        },
+        "metadata": {
+          "labels": {
+            "results": [
+              { "name": "architecture" }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "_links": {
+    "next": "/wiki/api/v2/search?cursor=next-cursor-token"
+  }
+}
