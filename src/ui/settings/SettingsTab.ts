@@ -1,6 +1,7 @@
 import { App, PluginSettingTab, Setting, Notice } from 'obsidian';
 import type ConfluenceSyncPlugin from '../../../main';
-import { ConfluenceClient, TenantConfig, MCPConnectionError, OAuthError } from '../../api/ConfluenceClient';
+import { ConfluenceClient, TenantConfig } from '../../api/ConfluenceClient';
+import { MCPConnectionError, OAuthError } from '../../types/errors';
 
 export class ConfluenceSettingsTab extends PluginSettingTab {
 	plugin: ConfluenceSyncPlugin;
