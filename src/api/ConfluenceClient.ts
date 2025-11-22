@@ -361,17 +361,19 @@ export class ConfluenceClient {
 	 * Search Confluence pages using CQL query
 	 * @param cql CQL query string (default: creator = currentUser() AND type = page)
 	 * @param limit Maximum number of results (default: 50, max: 100)
+	 * @param retryCount Internal parameter for retry logic
 	 * @returns Array of ConfluencePage objects
 	 */
 	async searchPages(
 		cql: string = 'creator = currentUser() AND type = page',
-		limit: number = 50
+		limit: number = 50,
+		retryCount: number = 0
 	): Promise<ConfluencePage[]> {
 		if (!this.currentTenant?.cloudId) {
 			throw new MCPConnectionError('Tenant not initialized or cloudId missing');
 		}
 
-		if (!this.isConnected()) {
+		if (!this.currentTenant?.oauthToken) {
 			throw new OAuthError('Not authenticated. Please connect to Confluence first.');
 		}
 
@@ -416,6 +418,17 @@ export class ConfluenceClient {
 			if (error.status) {
 				switch (error.status) {
 					case 401:
+						// Retry once with token refresh on 401
+						if (retryCount === 0) {
+							this.logger.warn('401 error, attempting token refresh and retry');
+							try {
+								await this.refreshAccessToken();
+								return await this.searchPages(cql, limit, 1);
+							} catch (refreshError) {
+								this.logger.error('Token refresh failed during retry', refreshError);
+								throw new OAuthError('Authentication failed. Please reconnect from Settings.');
+							}
+						}
 						throw new OAuthError('Authentication failed. Token may be expired.');
 					case 403:
 						throw new PermissionError('Permission denied. Check Confluence access permissions.');
@@ -483,14 +496,15 @@ export class ConfluenceClient {
 	/**
 	 * Get attachments for a Confluence page
 	 * @param pageId Confluence page ID
+	 * @param retryCount Internal parameter for retry logic
 	 * @returns Array of attachments
 	 */
-	async getAttachments(pageId: string): Promise<Attachment[]> {
+	async getAttachments(pageId: string, retryCount: number = 0): Promise<Attachment[]> {
 		if (!this.currentTenant?.cloudId) {
 			throw new MCPConnectionError('Tenant not initialized or cloudId missing');
 		}
 
-		if (!this.isConnected()) {
+		if (!this.currentTenant?.oauthToken) {
 			throw new OAuthError('Not authenticated. Please connect to Confluence first.');
 		}
 
@@ -526,6 +540,17 @@ export class ConfluenceClient {
 			this.logger.error('Failed to fetch attachments', { pageId, error });
 
 			if (error.status === 401) {
+				// Retry once with token refresh on 401
+				if (retryCount === 0) {
+					this.logger.warn('401 error on getAttachments, attempting token refresh and retry');
+					try {
+						await this.refreshAccessToken();
+						return await this.getAttachments(pageId, 1);
+					} catch (refreshError) {
+						this.logger.error('Token refresh failed during retry', refreshError);
+						throw new OAuthError('Authentication failed. Please reconnect from Settings.');
+					}
+				}
 				throw new OAuthError('Authentication failed');
 			}
 
@@ -547,14 +572,15 @@ export class ConfluenceClient {
 	/**
 	 * Download attachment binary data
 	 * @param downloadUrl Attachment download URL (relative path)
+	 * @param retryCount Internal parameter for retry logic
 	 * @returns ArrayBuffer containing file data
 	 */
-	async downloadAttachment(downloadUrl: string): Promise<ArrayBuffer> {
+	async downloadAttachment(downloadUrl: string, retryCount: number = 0): Promise<ArrayBuffer> {
 		if (!this.currentTenant) {
 			throw new MCPConnectionError('No active tenant connection');
 		}
 
-		if (!this.isConnected()) {
+		if (!this.currentTenant?.oauthToken) {
 			throw new OAuthError('Not authenticated. Please connect to Confluence first.');
 		}
 
@@ -578,6 +604,17 @@ export class ConfluenceClient {
 			this.logger.error('Failed to download attachment', { downloadUrl, error });
 
 			if (error.status === 401) {
+				// Retry once with token refresh on 401
+				if (retryCount === 0) {
+					this.logger.warn('401 error on downloadAttachment, attempting token refresh and retry');
+					try {
+						await this.refreshAccessToken();
+						return await this.downloadAttachment(downloadUrl, 1);
+					} catch (refreshError) {
+						this.logger.error('Token refresh failed during retry', refreshError);
+						throw new OAuthError('Authentication failed. Please reconnect from Settings.');
+					}
+				}
 				throw new OAuthError('Authentication failed');
 			}
 
