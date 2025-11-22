@@ -70,8 +70,15 @@ export class Logger {
       return;
     }
 
-    // 타임스탬프 생성
-    const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    // 타임스탬프 생성 (로컬 시간대)
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    const timestamp = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 
     // 로그 메시지 구성
     const logMessage = `[${timestamp}] [${level}] [${this.componentName}] ${message}`;

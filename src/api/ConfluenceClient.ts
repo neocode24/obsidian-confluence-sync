@@ -278,7 +278,7 @@ export class ConfluenceClient {
 
 		this.logger.debug('Token expiry check', {
 			tokenPreview,
-			expiresAt: new Date(expiresAt).toISOString(),
+			expiresAt: new Date(expiresAt).toLocaleString('ko-KR'),
 			timeUntilExpiry: Math.floor(timeUntilExpiry / 1000)
 		});
 
@@ -333,7 +333,7 @@ export class ConfluenceClient {
 			};
 
 			this.logger.info('Access token refreshed successfully', {
-				expiresAt: new Date(this.currentTenant.oauthToken.expiresAt).toISOString()
+				expiresAt: new Date(this.currentTenant.oauthToken.expiresAt).toLocaleString('ko-KR')
 			});
 
 			// Call callback to save updated tenant to settings
