@@ -90,6 +90,12 @@ export default class ConfluenceSyncPlugin extends Plugin {
 			return;
 		}
 
+		// Check if notifications are enabled
+		if (!this.settings.showNotifications) {
+			console.log('[ConfluenceSyncPlugin] Background check skipped - notifications disabled');
+			return;
+		}
+
 		try {
 			const syncHistory = new SyncHistory(this.app);
 			const backgroundDetector = new BackgroundChangeDetector(
@@ -98,11 +104,51 @@ export default class ConfluenceSyncPlugin extends Plugin {
 				this.settings.filters
 			);
 
-			await backgroundDetector.checkForChanges();
+			const changedCount = await backgroundDetector.checkForChanges();
+
+			// Show notification with action buttons if changes detected
+			if (changedCount > 0) {
+				this.showChangeNotification(changedCount);
+			}
 		} catch (error) {
 			// Silent failure - don't bother user
 			console.log('[ConfluenceSyncPlugin] Background check failed:', error);
 		}
+	}
+
+	/**
+	 * 변경사항 알림 표시 (액션 버튼 포함)
+	 */
+	private showChangeNotification(count: number): void {
+		const notice = new Notice('', 15000); // 15초 동안 표시
+
+		// 알림 메시지
+		const messageEl = notice.noticeEl.createDiv();
+		messageEl.setText(`🔔 Confluence에 ${count}개 페이지 업데이트됨`);
+		messageEl.style.marginBottom = '8px';
+
+		// 버튼 컨테이너
+		const buttonContainer = notice.noticeEl.createDiv();
+		buttonContainer.style.display = 'flex';
+		buttonContainer.style.gap = '8px';
+
+		// "지금 동기화" 버튼
+		const syncButton = buttonContainer.createEl('button', {
+			text: '지금 동기화',
+			cls: 'mod-cta'
+		});
+		syncButton.addEventListener('click', async () => {
+			notice.hide();
+			await this.syncConfluencePages();
+		});
+
+		// "나중에" 버튼
+		const laterButton = buttonContainer.createEl('button', {
+			text: '나중에'
+		});
+		laterButton.addEventListener('click', () => {
+			notice.hide();
+		});
 	}
 
 	/**
@@ -119,6 +165,11 @@ export default class ConfluenceSyncPlugin extends Plugin {
 		if (!this.confluenceClient.isConnected()) {
 			new Notice('⚠️ Confluence에 연결되지 않았습니다. 설정 탭에서 먼저 연결하세요.');
 			return;
+		}
+
+		// Show sync start notification
+		if (this.settings.showNotifications) {
+			new Notice('🔄 Confluence 동기화를 시작합니다...');
 		}
 
 		try {
@@ -149,7 +200,16 @@ export default class ConfluenceSyncPlugin extends Plugin {
 			);
 
 			// Execute sync
-			await syncEngine.syncAll();
+			const result = await syncEngine.syncAll();
+
+			// Show completion notification
+			if (this.settings.showNotifications) {
+				if (result.success) {
+					new Notice(`✅ 동기화 완료: ${result.updatedPages}개 페이지 업데이트, ${result.skippedPages}개 스킵`);
+				} else {
+					new Notice(`⚠️ 동기화 완료 (일부 오류): ${result.successCount}개 성공, ${result.failureCount}개 실패`);
+				}
+			}
 		} catch (error) {
 			console.error('[ConfluenceSyncPlugin] Sync error:', error);
 			new Notice(`❌ 동기화 오류: ${error instanceof Error ? error.message : 'Unknown error'}`);
