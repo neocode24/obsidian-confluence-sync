@@ -171,6 +171,18 @@ export class ConfluenceSettingsTab extends PluginSettingTab {
 				})
 			);
 
+		// Force Full Sync Option
+		new Setting(containerEl)
+			.setName('강제 전체 동기화')
+			.setDesc('활성화 시 모든 페이지를 다시 동기화 (변경 여부 무시)')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.forceFullSync)
+				.onChange(async (value) => {
+					this.plugin.settings.forceFullSync = value;
+					await this.plugin.saveSettings();
+				})
+			);
+
 		// Tenant URL Input
 		new Setting(containerEl)
 			.setName('Confluence URL')

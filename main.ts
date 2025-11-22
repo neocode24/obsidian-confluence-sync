@@ -92,9 +92,11 @@ export default class ConfluenceSyncPlugin extends Plugin {
 			// Create FileManager and SyncEngine
 			const fileManager = new FileManager(this.app.vault);
 			const syncEngine = new SyncEngine(
+				this.app,
 				this.confluenceClient,
 				fileManager,
-				this.settings.syncPath
+				this.settings.syncPath,
+				this.settings.forceFullSync
 			);
 
 			// Execute sync
