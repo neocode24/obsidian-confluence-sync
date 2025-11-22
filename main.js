@@ -136,13 +136,13 @@ var ConfluenceClient = class {
         }
         try {
           await this.exchangeCodeForTokens(code);
-          res.writeHead(200, { "Content-Type": "text/html" });
-          res.end("<html><body><h1>\u2705 \uC778\uC99D \uC131\uACF5!</h1><p>Obsidian\uC73C\uB85C \uB3CC\uC544\uAC00\uC138\uC694.</p></body></html>");
+          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+          res.end('<html><head><meta charset="utf-8"></head><body><h1>\u2705 \uC778\uC99D \uC131\uACF5!</h1><p>Obsidian\uC73C\uB85C \uB3CC\uC544\uAC00\uC138\uC694.</p></body></html>');
           this.stopCallbackServer();
           resolve();
         } catch (error) {
-          res.writeHead(500);
-          res.end("Token exchange failed");
+          res.writeHead(500, { "Content-Type": "text/html; charset=utf-8" });
+          res.end('<html><head><meta charset="utf-8"></head><body><h1>\u274C \uC778\uC99D \uC2E4\uD328</h1><p>\uC5D0\uB7EC: ' + (error instanceof Error ? error.message : "Unknown error") + "</p></body></html>");
           this.stopCallbackServer();
           reject(error);
         }
@@ -293,9 +293,21 @@ var ConfluenceSettingsTab = class extends import_obsidian2.PluginSettingTab {
     this.confluenceClient = new ConfluenceClient(this.plugin.settings.oauthConfig);
   }
   display() {
+    var _a, _b;
     const { containerEl } = this;
     containerEl.empty();
     containerEl.createEl("h2", { text: "Confluence Sync \uC124\uC815" });
+    if (!this.confluenceClient && ((_a = this.plugin.settings.oauthConfig) == null ? void 0 : _a.clientId) && ((_b = this.plugin.settings.oauthConfig) == null ? void 0 : _b.clientSecret)) {
+      this.initializeClient();
+    }
+    if (this.confluenceClient && this.plugin.settings.tenants.length > 0) {
+      const savedTenant = this.plugin.settings.tenants[0];
+      if (savedTenant.oauthToken) {
+        this.confluenceClient.initialize(savedTenant).catch((err) => {
+          console.error("Failed to restore tenant:", err);
+        });
+      }
+    }
     this.displayOAuthSection(containerEl);
     this.displayTenantSection(containerEl);
     this.displayConnectionStatus(containerEl);
@@ -306,10 +318,10 @@ var ConfluenceSettingsTab = class extends import_obsidian2.PluginSettingTab {
       text: "Atlassian Developer Console\uC5D0\uC11C OAuth \uC571\uC744 \uB4F1\uB85D\uD558\uACE0 credentials\uB97C \uC785\uB825\uD558\uC138\uC694.",
       cls: "setting-item-description"
     });
-    new import_obsidian2.Setting(containerEl).setName("Client ID").setDesc("OAuth \uC571\uC758 Client ID").addText(
+    new import_obsidian2.Setting(containerEl).setName("Client ID").setDesc("OAuth \uC571\uC758 Client ID (Atlassian Developer Console\uC5D0\uC11C \uBC1C\uAE09)").addText(
       (text) => {
         var _a;
-        return text.setPlaceholder("Client ID \uC785\uB825").setValue(((_a = this.plugin.settings.oauthConfig) == null ? void 0 : _a.clientId) || "").onChange(async (value) => {
+        return text.setPlaceholder("\uC608: JxHnedI71sZewJI9KjZc8ayU3YYU4aPH").setValue(((_a = this.plugin.settings.oauthConfig) == null ? void 0 : _a.clientId) || "").onChange(async (value) => {
           if (!this.plugin.settings.oauthConfig) {
             this.plugin.settings.oauthConfig = {
               clientId: value,
@@ -328,7 +340,7 @@ var ConfluenceSettingsTab = class extends import_obsidian2.PluginSettingTab {
     new import_obsidian2.Setting(containerEl).setName("Client Secret").setDesc("OAuth \uC571\uC758 Client Secret (\uC548\uC804\uD558\uAC8C \uC800\uC7A5\uB429\uB2C8\uB2E4)").addText((text) => {
       var _a;
       text.inputEl.type = "password";
-      return text.setPlaceholder("Client Secret \uC785\uB825").setValue(((_a = this.plugin.settings.oauthConfig) == null ? void 0 : _a.clientSecret) || "").onChange(async (value) => {
+      return text.setPlaceholder("ATOAtF9WM-zMC...").setValue(((_a = this.plugin.settings.oauthConfig) == null ? void 0 : _a.clientSecret) || "").onChange(async (value) => {
         if (!this.plugin.settings.oauthConfig) {
           this.plugin.settings.oauthConfig = {
             clientId: "",
@@ -342,6 +354,33 @@ var ConfluenceSettingsTab = class extends import_obsidian2.PluginSettingTab {
         await this.plugin.saveSettings();
         this.initializeClient();
       });
+    });
+    containerEl.createEl("details", {}, (details) => {
+      details.createEl("summary", { text: "\uACE0\uAE09 \uC124\uC815" });
+      new import_obsidian2.Setting(details).setName("Redirect URI").setDesc("OAuth callback\uC744 \uBC1B\uC744 URI (\uAE30\uBCF8\uAC12 \uC0AC\uC6A9 \uAD8C\uC7A5)").addText(
+        (text) => {
+          var _a;
+          return text.setPlaceholder("http://localhost:8080/callback").setValue(((_a = this.plugin.settings.oauthConfig) == null ? void 0 : _a.redirectUri) || "http://localhost:8080/callback").onChange(async (value) => {
+            if (this.plugin.settings.oauthConfig) {
+              this.plugin.settings.oauthConfig.redirectUri = value;
+              await this.plugin.saveSettings();
+              this.initializeClient();
+            }
+          });
+        }
+      );
+      new import_obsidian2.Setting(details).setName("OAuth Scope").setDesc("OAuth \uAD8C\uD55C \uBC94\uC704 (\uAE30\uBCF8\uAC12: Confluence read/write)").addTextArea(
+        (text) => {
+          var _a;
+          return text.setPlaceholder("read:confluence-content.all write:confluence-content ...").setValue(((_a = this.plugin.settings.oauthConfig) == null ? void 0 : _a.scope) || "read:confluence-content.all write:confluence-content read:confluence-space.summary offline_access").onChange(async (value) => {
+            if (this.plugin.settings.oauthConfig) {
+              this.plugin.settings.oauthConfig.scope = value;
+              await this.plugin.saveSettings();
+              this.initializeClient();
+            }
+          });
+        }
+      );
     });
   }
   displayTenantSection(containerEl) {
@@ -410,6 +449,11 @@ var ConfluenceSettingsTab = class extends import_obsidian2.PluginSettingTab {
       await this.confluenceClient.initialize(tenant);
       new import_obsidian2.Notice("\u{1F504} OAuth \uC778\uC99D \uC2DC\uC791 \uC911...");
       await this.confluenceClient.initiateOAuth();
+      const updatedTenant = this.confluenceClient.getCurrentTenant();
+      if (updatedTenant) {
+        this.plugin.settings.tenants[0] = updatedTenant;
+        await this.plugin.saveSettings();
+      }
       this.display();
     } catch (error) {
       if (error instanceof MCPConnectionError) {

@@ -139,14 +139,14 @@ export class ConfluenceClient {
 					// Exchange code for tokens
 					await this.exchangeCodeForTokens(code);
 
-					res.writeHead(200, { 'Content-Type': 'text/html' });
-					res.end('<html><body><h1>✅ 인증 성공!</h1><p>Obsidian으로 돌아가세요.</p></body></html>');
+					res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+					res.end('<html><head><meta charset="utf-8"></head><body><h1>✅ 인증 성공!</h1><p>Obsidian으로 돌아가세요.</p></body></html>');
 
 					this.stopCallbackServer();
 					resolve();
 				} catch (error) {
-					res.writeHead(500);
-					res.end('Token exchange failed');
+					res.writeHead(500, { 'Content-Type': 'text/html; charset=utf-8' });
+					res.end('<html><head><meta charset="utf-8"></head><body><h1>❌ 인증 실패</h1><p>에러: ' + (error instanceof Error ? error.message : 'Unknown error') + '</p></body></html>');
 					this.stopCallbackServer();
 					reject(error);
 				}
