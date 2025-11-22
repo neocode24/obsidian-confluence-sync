@@ -56,6 +56,9 @@ export class ConfluenceSettingsTab extends PluginSettingTab {
 		// Sync Filters Section
 		this.displayFiltersSection(containerEl);
 
+		// Background Check Section
+		this.displayBackgroundCheckSection(containerEl);
+
 		// Connection Status
 		this.displayConnectionStatus(containerEl);
 	}
@@ -313,6 +316,48 @@ export class ConfluenceSettingsTab extends PluginSettingTab {
 			// Info message
 			containerEl.createEl('p', {
 				text: 'ℹ️ 필터가 비어있으면 해당 조건은 적용되지 않습니다 (모든 항목 포함)',
+				cls: 'setting-item-description'
+			});
+		}
+	}
+
+	private displayBackgroundCheckSection(containerEl: HTMLElement): void {
+		containerEl.createEl('h3', { text: '백그라운드 변경 감지' });
+		containerEl.createEl('p', {
+			text: 'Obsidian 시작 시 자동으로 Confluence 변경사항을 확인합니다.',
+			cls: 'setting-item-description'
+		});
+
+		// Enable Background Check
+		new Setting(containerEl)
+			.setName('백그라운드 체크 활성화')
+			.setDesc('백그라운드에서 Confluence 변경사항을 자동으로 감지합니다')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.backgroundCheck)
+				.onChange(async (value) => {
+					this.plugin.settings.backgroundCheck = value;
+					await this.plugin.saveSettings();
+					this.display(); // Refresh to show/hide options
+				})
+			);
+
+		// Show options only if enabled
+		if (this.plugin.settings.backgroundCheck) {
+			// Check on Startup
+			new Setting(containerEl)
+				.setName('시작 시 자동 체크')
+				.setDesc('Obsidian 시작 시 변경사항을 자동으로 확인합니다')
+				.addToggle(toggle => toggle
+					.setValue(this.plugin.settings.backgroundCheckOnStartup)
+					.onChange(async (value) => {
+						this.plugin.settings.backgroundCheckOnStartup = value;
+						await this.plugin.saveSettings();
+					})
+				);
+
+			// Info message
+			containerEl.createEl('p', {
+				text: 'ℹ️ 변경사항이 감지되면 알림으로 안내합니다.',
 				cls: 'setting-item-description'
 			});
 		}
