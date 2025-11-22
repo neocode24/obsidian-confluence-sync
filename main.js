@@ -21852,12 +21852,13 @@ var ChangeDetector = class {
 
 // src/sync/SyncEngine.ts
 var SyncEngine = class {
-  constructor(app, confluenceClient, fileManager, syncPath, forceSync = false) {
+  constructor(app, confluenceClient, fileManager, syncPath, forceSync = false, cqlQuery = "type = page") {
     this.app = app;
     this.confluenceClient = confluenceClient;
     this.fileManager = fileManager;
     this.syncPath = syncPath;
     this.forceSync = forceSync;
+    this.cqlQuery = cqlQuery;
     this.markdownConverter = new MarkdownConverter();
     this.metadataBuilder = new MetadataBuilder();
     this.syncHistory = new SyncHistory(app);
@@ -21879,7 +21880,7 @@ var SyncEngine = class {
     try {
       new import_obsidian3.Notice("\u{1F504} Confluence \uB3D9\uAE30\uD654 \uC2DC\uC791...");
       await this.syncHistory.loadHistory();
-      const allPages = await this.confluenceClient.searchPages();
+      const allPages = await this.confluenceClient.searchPages(this.cqlQuery);
       result.totalPages = allPages.length;
       if (allPages.length === 0) {
         new import_obsidian3.Notice("\u2139\uFE0F \uB3D9\uAE30\uD654\uD560 \uD398\uC774\uC9C0\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
@@ -22194,6 +22195,84 @@ ${parsed.localNotes}`;
   }
 };
 
+// src/utils/CQLBuilder.ts
+var CQLBuilder = class {
+  /**
+   * 필터 설정을 기반으로 CQL 검색 쿼리 생성
+   * @param filters 동기화 필터 설정
+   * @returns CQL 쿼리 문자열
+   */
+  buildSearchQuery(filters) {
+    const conditions = [];
+    conditions.push("type = page");
+    if (!filters || !filters.enabled) {
+      return conditions.join(" AND ");
+    }
+    if (filters.spaceKeys && filters.spaceKeys.length > 0) {
+      const validSpaceKeys = filters.spaceKeys.map((key) => this.escapeValue(key)).filter((key) => key.length > 0);
+      if (validSpaceKeys.length > 0) {
+        const spaceList = validSpaceKeys.join(", ");
+        conditions.push(`space IN (${spaceList})`);
+      }
+    }
+    if (filters.labels && filters.labels.length > 0) {
+      const validLabels = filters.labels.map((label) => this.escapeValue(label)).filter((label) => label.length > 0);
+      if (validLabels.length > 0) {
+        const labelList = validLabels.join(", ");
+        conditions.push(`label IN (${labelList})`);
+      }
+    }
+    if (filters.rootPageIds && filters.rootPageIds.length > 0) {
+      const validPageIds = filters.rootPageIds.filter((id) => id.length > 0 && /^\d+$/.test(id));
+      if (validPageIds.length > 0) {
+        const pageIdList = validPageIds.join(", ");
+        conditions.push(`ancestor IN (${pageIdList})`);
+      }
+    }
+    return conditions.join(" AND ");
+  }
+  /**
+   * CQL 값 이스케이프 처리
+   * @param value 원본 값
+   * @returns 이스케이프된 값
+   */
+  escapeValue(value) {
+    if (!value || value.trim().length === 0) {
+      return "";
+    }
+    const trimmed = value.trim();
+    if (/[\s,()]/.test(trimmed)) {
+      const escaped = trimmed.replace(/"/g, '\\"');
+      return `"${escaped}"`;
+    }
+    return trimmed;
+  }
+  /**
+   * 필터 유효성 검증
+   * @param filters 동기화 필터 설정
+   * @returns true if valid
+   */
+  validateFilters(filters) {
+    if (!filters.enabled) {
+      return true;
+    }
+    const hasSpaceFilter = filters.spaceKeys && filters.spaceKeys.length > 0;
+    const hasLabelFilter = filters.labels && filters.labels.length > 0;
+    const hasPageTreeFilter = filters.rootPageIds && filters.rootPageIds.length > 0;
+    if (filters.enabled && !hasSpaceFilter && !hasLabelFilter && !hasPageTreeFilter) {
+      return false;
+    }
+    if (hasPageTreeFilter) {
+      const invalidPageIds = filters.rootPageIds.filter((id) => id.length > 0 && !/^\d+$/.test(id));
+      if (invalidPageIds.length > 0) {
+        console.warn(`[CQLBuilder] Invalid page IDs detected: ${invalidPageIds.join(", ")}`);
+        return false;
+      }
+    }
+    return true;
+  }
+};
+
 // main.ts
 var ConfluenceSyncPlugin = class extends import_obsidian5.Plugin {
   constructor(app, manifest) {
@@ -22245,6 +22324,7 @@ var ConfluenceSyncPlugin = class extends import_obsidian5.Plugin {
    * Confluence 페이지 동기화 실행
    */
   async syncConfluencePages() {
+    var _a;
     if (!this.confluenceClient) {
       new import_obsidian5.Notice("\u26A0\uFE0F Confluence OAuth \uC124\uC815\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC124\uC815 \uD0ED\uC5D0\uC11C \uBA3C\uC800 \uC5F0\uACB0\uD558\uC138\uC694.");
       return;
@@ -22254,13 +22334,24 @@ var ConfluenceSyncPlugin = class extends import_obsidian5.Plugin {
       return;
     }
     try {
+      const cqlBuilder = new CQLBuilder();
+      if ((_a = this.settings.filters) == null ? void 0 : _a.enabled) {
+        const isValid = cqlBuilder.validateFilters(this.settings.filters);
+        if (!isValid) {
+          new import_obsidian5.Notice("\u26A0\uFE0F \uD544\uD130 \uC124\uC815\uC774 \uC720\uD6A8\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC124\uC815\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
+          return;
+        }
+      }
+      const cqlQuery = cqlBuilder.buildSearchQuery(this.settings.filters);
+      console.log("[ConfluenceSyncPlugin] CQL Query:", cqlQuery);
       const fileManager = new FileManager(this.app.vault);
       const syncEngine = new SyncEngine(
         this.app,
         this.confluenceClient,
         fileManager,
         this.settings.syncPath,
-        this.settings.forceFullSync
+        this.settings.forceFullSync,
+        cqlQuery
       );
       await syncEngine.syncAll();
     } catch (error) {
