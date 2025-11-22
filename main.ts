@@ -22,6 +22,9 @@ export default class ConfluenceSyncPlugin extends Plugin {
 	async onload() {
 		this.logger.info('Loading Confluence Sync plugin');
 
+		// Set vault for file logging
+		Logger.setVault(this.app.vault);
+
 		// Load settings
 		await this.loadSettings();
 
