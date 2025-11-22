@@ -53,6 +53,9 @@ export class ConfluenceSettingsTab extends PluginSettingTab {
 		// Tenant Configuration Section
 		this.displayTenantSection(containerEl);
 
+		// Sync Filters Section
+		this.displayFiltersSection(containerEl);
+
 		// Connection Status
 		this.displayConnectionStatus(containerEl);
 	}
@@ -217,6 +220,102 @@ export class ConfluenceSettingsTab extends PluginSettingTab {
 					await this.handleConnect();
 				})
 			);
+	}
+
+	private displayFiltersSection(containerEl: HTMLElement): void {
+		containerEl.createEl('h3', { text: '동기화 필터' });
+		containerEl.createEl('p', {
+			text: '특정 Space, Label 또는 페이지만 동기화하도록 필터를 설정할 수 있습니다.',
+			cls: 'setting-item-description'
+		});
+
+		// Ensure filters object exists
+		if (!this.plugin.settings.filters) {
+			this.plugin.settings.filters = {
+				enabled: false,
+				spaceKeys: [],
+				labels: [],
+				rootPageIds: []
+			};
+		}
+
+		// Enable Filters Toggle
+		new Setting(containerEl)
+			.setName('필터 활성화')
+			.setDesc('동기화 필터를 사용합니다')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.filters?.enabled || false)
+				.onChange(async (value) => {
+					if (this.plugin.settings.filters) {
+						this.plugin.settings.filters.enabled = value;
+						await this.plugin.saveSettings();
+						this.display(); // Refresh to show/hide filter options
+					}
+				})
+			);
+
+		// Show filter options only if enabled
+		if (this.plugin.settings.filters.enabled) {
+			// Space Filter
+			new Setting(containerEl)
+				.setName('Space 필터')
+				.setDesc('동기화할 Space 키 목록 (쉼표로 구분, 예: SPACE1, SPACE2)')
+				.addText(text => text
+					.setPlaceholder('SPACE1, SPACE2')
+					.setValue(this.plugin.settings.filters?.spaceKeys.join(', ') || '')
+					.onChange(async (value) => {
+						if (this.plugin.settings.filters) {
+							this.plugin.settings.filters.spaceKeys = value
+								.split(',')
+								.map(s => s.trim())
+								.filter(s => s.length > 0);
+							await this.plugin.saveSettings();
+						}
+					})
+				);
+
+			// Label Filter
+			new Setting(containerEl)
+				.setName('Label 필터')
+				.setDesc('동기화할 레이블 목록 (쉼표로 구분, 예: important, documentation)')
+				.addText(text => text
+					.setPlaceholder('important, documentation')
+					.setValue(this.plugin.settings.filters?.labels.join(', ') || '')
+					.onChange(async (value) => {
+						if (this.plugin.settings.filters) {
+							this.plugin.settings.filters.labels = value
+								.split(',')
+								.map(s => s.trim())
+								.filter(s => s.length > 0);
+							await this.plugin.saveSettings();
+						}
+					})
+				);
+
+			// Page Tree Filter
+			new Setting(containerEl)
+				.setName('페이지 트리 필터')
+				.setDesc('루트 페이지 ID 목록 (쉼표로 구분) - 지정된 페이지와 하위 페이지만 동기화')
+				.addText(text => text
+					.setPlaceholder('123456789, 987654321')
+					.setValue(this.plugin.settings.filters?.rootPageIds.join(', ') || '')
+					.onChange(async (value) => {
+						if (this.plugin.settings.filters) {
+							this.plugin.settings.filters.rootPageIds = value
+								.split(',')
+								.map(s => s.trim())
+								.filter(s => s.length > 0);
+							await this.plugin.saveSettings();
+						}
+					})
+				);
+
+			// Info message
+			containerEl.createEl('p', {
+				text: 'ℹ️ 필터가 비어있으면 해당 조건은 적용되지 않습니다 (모든 항목 포함)',
+				cls: 'setting-item-description'
+			});
+		}
 	}
 
 	private displayConnectionStatus(containerEl: HTMLElement): void {

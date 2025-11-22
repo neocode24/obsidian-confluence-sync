@@ -18027,6 +18027,99 @@ var ConfluenceClient = class {
       };
     });
   }
+  /**
+   * Get attachments for a Confluence page
+   * @param pageId Confluence page ID
+   * @returns Array of attachments
+   */
+  async getAttachments(pageId) {
+    var _a;
+    if (!((_a = this.currentTenant) == null ? void 0 : _a.cloudId)) {
+      throw new MCPConnectionError("Tenant not initialized or cloudId missing");
+    }
+    if (!this.isConnected()) {
+      throw new OAuthError("Not authenticated. Please connect to Confluence first.");
+    }
+    try {
+      const accessToken = await this.getAccessToken();
+      const url = `https://api.atlassian.com/ex/confluence/${this.currentTenant.cloudId}/rest/api/content/${pageId}/child/attachment`;
+      console.log(`[Confluence] Fetching attachments for page: ${pageId}`);
+      const response = await (0, import_obsidian.requestUrl)({
+        url,
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json"
+        }
+      });
+      const data = response.json;
+      const attachments = data.results || [];
+      console.log(`[Confluence] Found ${attachments.length} attachments`);
+      return attachments.map((att) => {
+        var _a2, _b, _c;
+        return {
+          id: att.id,
+          title: att.title,
+          mediaType: ((_a2 = att.metadata) == null ? void 0 : _a2.mediaType) || "application/octet-stream",
+          fileSize: ((_b = att.extensions) == null ? void 0 : _b.fileSize) || 0,
+          downloadUrl: ((_c = att._links) == null ? void 0 : _c.download) || "",
+          pageId
+        };
+      });
+    } catch (error) {
+      console.error("[Confluence] Failed to fetch attachments:", error);
+      if (error.status === 401) {
+        throw new OAuthError("Authentication failed");
+      }
+      if (error.status === 403) {
+        throw new PermissionError("Insufficient permissions to access attachments");
+      }
+      if (error.status === 404) {
+        throw new ConfluenceAPIError("Page not found", 404);
+      }
+      throw new ConfluenceAPIError(
+        `Failed to fetch attachments: ${error.message}`,
+        error.status || 500
+      );
+    }
+  }
+  /**
+   * Download attachment binary data
+   * @param downloadUrl Attachment download URL (relative path)
+   * @returns ArrayBuffer containing file data
+   */
+  async downloadAttachment(downloadUrl) {
+    if (!this.currentTenant) {
+      throw new MCPConnectionError("No active tenant connection");
+    }
+    if (!this.isConnected()) {
+      throw new OAuthError("Not authenticated. Please connect to Confluence first.");
+    }
+    try {
+      const accessToken = await this.getAccessToken();
+      const fullUrl = `${this.currentTenant.url}${downloadUrl}`;
+      console.log(`[Confluence] Downloading attachment: ${downloadUrl}`);
+      const response = await (0, import_obsidian.requestUrl)({
+        url: fullUrl,
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${accessToken}`
+        }
+      });
+      return response.arrayBuffer;
+    } catch (error) {
+      console.error("[Confluence] Failed to download attachment:", error);
+      if (error.status === 401) {
+        throw new OAuthError("Authentication failed");
+      }
+      if (error.status === 404) {
+        throw new ConfluenceAPIError("Attachment not found", 404);
+      }
+      throw new NetworkError(
+        `Failed to download attachment: ${error.message}`
+      );
+    }
+  }
 };
 
 // src/ui/settings/SettingsTab.ts
@@ -18064,6 +18157,7 @@ var ConfluenceSettingsTab = class extends import_obsidian2.PluginSettingTab {
     }
     this.displayOAuthSection(containerEl);
     this.displayTenantSection(containerEl);
+    this.displayFiltersSection(containerEl);
     this.displayConnectionStatus(containerEl);
   }
   displayOAuthSection(containerEl) {
@@ -18149,6 +18243,12 @@ var ConfluenceSettingsTab = class extends import_obsidian2.PluginSettingTab {
         await this.plugin.saveSettings();
       })
     );
+    new import_obsidian2.Setting(containerEl).setName("\uAC15\uC81C \uC804\uCCB4 \uB3D9\uAE30\uD654").setDesc("\uD65C\uC131\uD654 \uC2DC \uBAA8\uB4E0 \uD398\uC774\uC9C0\uB97C \uB2E4\uC2DC \uB3D9\uAE30\uD654 (\uBCC0\uACBD \uC5EC\uBD80 \uBB34\uC2DC)").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.forceFullSync).onChange(async (value) => {
+        this.plugin.settings.forceFullSync = value;
+        await this.plugin.saveSettings();
+      })
+    );
     new import_obsidian2.Setting(containerEl).setName("Confluence URL").setDesc("Confluence \uC778\uC2A4\uD134\uC2A4 URL (\uC608: https://yourcompany.atlassian.net)").addText(
       (text) => {
         var _a;
@@ -18172,6 +18272,72 @@ var ConfluenceSettingsTab = class extends import_obsidian2.PluginSettingTab {
         await this.handleConnect();
       })
     );
+  }
+  displayFiltersSection(containerEl) {
+    containerEl.createEl("h3", { text: "\uB3D9\uAE30\uD654 \uD544\uD130" });
+    containerEl.createEl("p", {
+      text: "\uD2B9\uC815 Space, Label \uB610\uB294 \uD398\uC774\uC9C0\uB9CC \uB3D9\uAE30\uD654\uD558\uB3C4\uB85D \uD544\uD130\uB97C \uC124\uC815\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+      cls: "setting-item-description"
+    });
+    if (!this.plugin.settings.filters) {
+      this.plugin.settings.filters = {
+        enabled: false,
+        spaceKeys: [],
+        labels: [],
+        rootPageIds: []
+      };
+    }
+    new import_obsidian2.Setting(containerEl).setName("\uD544\uD130 \uD65C\uC131\uD654").setDesc("\uB3D9\uAE30\uD654 \uD544\uD130\uB97C \uC0AC\uC6A9\uD569\uB2C8\uB2E4").addToggle(
+      (toggle) => {
+        var _a;
+        return toggle.setValue(((_a = this.plugin.settings.filters) == null ? void 0 : _a.enabled) || false).onChange(async (value) => {
+          if (this.plugin.settings.filters) {
+            this.plugin.settings.filters.enabled = value;
+            await this.plugin.saveSettings();
+            this.display();
+          }
+        });
+      }
+    );
+    if (this.plugin.settings.filters.enabled) {
+      new import_obsidian2.Setting(containerEl).setName("Space \uD544\uD130").setDesc("\uB3D9\uAE30\uD654\uD560 Space \uD0A4 \uBAA9\uB85D (\uC27C\uD45C\uB85C \uAD6C\uBD84, \uC608: SPACE1, SPACE2)").addText(
+        (text) => {
+          var _a;
+          return text.setPlaceholder("SPACE1, SPACE2").setValue(((_a = this.plugin.settings.filters) == null ? void 0 : _a.spaceKeys.join(", ")) || "").onChange(async (value) => {
+            if (this.plugin.settings.filters) {
+              this.plugin.settings.filters.spaceKeys = value.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+              await this.plugin.saveSettings();
+            }
+          });
+        }
+      );
+      new import_obsidian2.Setting(containerEl).setName("Label \uD544\uD130").setDesc("\uB3D9\uAE30\uD654\uD560 \uB808\uC774\uBE14 \uBAA9\uB85D (\uC27C\uD45C\uB85C \uAD6C\uBD84, \uC608: important, documentation)").addText(
+        (text) => {
+          var _a;
+          return text.setPlaceholder("important, documentation").setValue(((_a = this.plugin.settings.filters) == null ? void 0 : _a.labels.join(", ")) || "").onChange(async (value) => {
+            if (this.plugin.settings.filters) {
+              this.plugin.settings.filters.labels = value.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+              await this.plugin.saveSettings();
+            }
+          });
+        }
+      );
+      new import_obsidian2.Setting(containerEl).setName("\uD398\uC774\uC9C0 \uD2B8\uB9AC \uD544\uD130").setDesc("\uB8E8\uD2B8 \uD398\uC774\uC9C0 ID \uBAA9\uB85D (\uC27C\uD45C\uB85C \uAD6C\uBD84) - \uC9C0\uC815\uB41C \uD398\uC774\uC9C0\uC640 \uD558\uC704 \uD398\uC774\uC9C0\uB9CC \uB3D9\uAE30\uD654").addText(
+        (text) => {
+          var _a;
+          return text.setPlaceholder("123456789, 987654321").setValue(((_a = this.plugin.settings.filters) == null ? void 0 : _a.rootPageIds.join(", ")) || "").onChange(async (value) => {
+            if (this.plugin.settings.filters) {
+              this.plugin.settings.filters.rootPageIds = value.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+              await this.plugin.saveSettings();
+            }
+          });
+        }
+      );
+      containerEl.createEl("p", {
+        text: "\u2139\uFE0F \uD544\uD130\uAC00 \uBE44\uC5B4\uC788\uC73C\uBA74 \uD574\uB2F9 \uC870\uAC74\uC740 \uC801\uC6A9\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4 (\uBAA8\uB4E0 \uD56D\uBAA9 \uD3EC\uD568)",
+        cls: "setting-item-description"
+      });
+    }
   }
   displayConnectionStatus(containerEl) {
     var _a, _b;
@@ -18251,6 +18417,7 @@ var DEFAULT_SETTINGS = {
   syncPath: "confluence/",
   attachmentsPath: "attachments/",
   showNotifications: true,
+  forceFullSync: false,
   oauthConfig: {
     // For development: Set your OAuth app credentials here
     // clientId: 'your-client-id',
@@ -18259,6 +18426,12 @@ var DEFAULT_SETTINGS = {
     clientSecret: "",
     redirectUri: "http://localhost:8080/callback",
     scope: "read:confluence-content.all write:confluence-content read:confluence-space.summary offline_access"
+  },
+  filters: {
+    enabled: false,
+    spaceKeys: [],
+    labels: [],
+    rootPageIds: []
   }
 };
 
@@ -18267,6 +18440,336 @@ var import_obsidian3 = require("obsidian");
 
 // src/converters/MarkdownConverter.ts
 var import_turndown = __toESM(require_turndown_cjs());
+
+// src/converters/PlantUMLParser.ts
+var PlantUMLParser = class {
+  /**
+   * HTML에서 PlantUML 매크로 추출
+   * @param html Confluence Storage Format HTML
+   * @returns PlantUML 매크로 배열
+   */
+  extractMacros(html) {
+    const macros = [];
+    const macroPattern = /<ac:structured-macro\s+ac:name="plantuml"[^>]*>([\s\S]*?)<\/ac:structured-macro>/gi;
+    let match;
+    while ((match = macroPattern.exec(html)) !== null) {
+      const macroContent = match[1];
+      const startIndex = match.index;
+      const endIndex = match.index + match[0].length;
+      const title = this.extractTitle(macroContent);
+      const code = this.extractCode(macroContent);
+      if (code) {
+        macros.push({
+          code,
+          title,
+          startIndex,
+          endIndex
+        });
+      }
+    }
+    console.log(`[PlantUMLParser] Found ${macros.length} PlantUML macros`);
+    return macros;
+  }
+  /**
+   * 매크로에서 제목 추출
+   * @param macroContent 매크로 내부 콘텐츠
+   * @returns 제목 (없으면 undefined)
+   */
+  extractTitle(macroContent) {
+    const titlePattern = /<ac:parameter\s+ac:name="title">([^<]+)<\/ac:parameter>/i;
+    const match = macroContent.match(titlePattern);
+    return match ? match[1].trim() : void 0;
+  }
+  /**
+   * 매크로에서 PlantUML 코드 추출
+   * @param macroContent 매크로 내부 콘텐츠
+   * @returns PlantUML 코드
+   */
+  extractCode(macroContent) {
+    const cdataPattern = /<ac:plain-text-body>\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*<\/ac:plain-text-body>/i;
+    const match = macroContent.match(cdataPattern);
+    if (match) {
+      return match[1].trim();
+    }
+    const textPattern = /<ac:plain-text-body>([\s\S]*?)<\/ac:plain-text-body>/i;
+    const textMatch = macroContent.match(textPattern);
+    if (textMatch) {
+      return textMatch[1].trim();
+    }
+    return null;
+  }
+  /**
+   * PlantUML 매크로를 마크다운 코드 블록으로 변환
+   * @param macro PlantUML 매크로
+   * @returns 마크다운 코드 블록
+   */
+  convertToMarkdown(macro) {
+    let markdown = "";
+    if (macro.title) {
+      markdown += `<!-- ${macro.title} -->
+`;
+    }
+    markdown += "```plantuml\n";
+    markdown += macro.code;
+    markdown += "\n```";
+    return markdown;
+  }
+  /**
+   * HTML에서 PlantUML 매크로 제거 및 플레이스홀더로 치환
+   * @param html 원본 HTML
+   * @param macros 추출된 매크로 배열
+   * @returns 플레이스홀더가 삽입된 HTML
+   */
+  replaceWithPlaceholders(html, macros) {
+    let result = html;
+    for (let i = macros.length - 1; i >= 0; i--) {
+      const macro = macros[i];
+      const placeholder = `<p>__PLANTUML_PLACEHOLDER_${i}__</p>`;
+      result = result.substring(0, macro.startIndex) + placeholder + result.substring(macro.endIndex);
+    }
+    return result;
+  }
+  /**
+   * 플레이스홀더를 마크다운 코드 블록으로 복원
+   * @param markdown 플레이스홀더가 포함된 마크다운
+   * @param macros 원본 매크로 배열
+   * @returns 최종 마크다운
+   */
+  restorePlaceholders(markdown, macros) {
+    let result = markdown;
+    for (let i = 0; i < macros.length; i++) {
+      const escapedPlaceholder = `\\_\\_PLANTUML\\_PLACEHOLDER\\_${i}\\_\\_`;
+      const codeBlock = this.convertToMarkdown(macros[i]);
+      result = result.replace(escapedPlaceholder, codeBlock);
+    }
+    return result;
+  }
+};
+
+// src/converters/DrawioParser.ts
+var DrawioParser = class {
+  /**
+   * HTML에서 Draw.io 매크로 추출
+   * @param html Confluence Storage Format HTML
+   * @returns Draw.io 매크로 배열
+   */
+  extractMacros(html) {
+    const macros = [];
+    const macroPattern = /<ac:structured-macro\s+ac:name="drawio"[^>]*>([\s\S]*?)<\/ac:structured-macro>/gi;
+    let match;
+    while ((match = macroPattern.exec(html)) !== null) {
+      const macroContent = match[1];
+      const startIndex = match.index;
+      const endIndex = match.index + match[0].length;
+      const name = this.extractName(macroContent);
+      const xml = this.extractXml(macroContent);
+      if (xml) {
+        macros.push({
+          xml,
+          name,
+          startIndex,
+          endIndex
+        });
+      }
+    }
+    console.log(`[DrawioParser] Found ${macros.length} Draw.io macros`);
+    return macros;
+  }
+  /**
+   * 매크로에서 이름 추출
+   * @param macroContent 매크로 내부 콘텐츠
+   * @returns 이름 (없으면 undefined)
+   */
+  extractName(macroContent) {
+    const namePattern = /<ac:parameter\s+ac:name="name">([^<]+)<\/ac:parameter>/i;
+    const match = macroContent.match(namePattern);
+    return match ? match[1].trim() : void 0;
+  }
+  /**
+   * 매크로에서 Draw.io XML 추출
+   * @param macroContent 매크로 내부 콘텐츠
+   * @returns Draw.io XML
+   */
+  extractXml(macroContent) {
+    const cdataPattern = /<ac:plain-text-body>\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*<\/ac:plain-text-body>/i;
+    const match = macroContent.match(cdataPattern);
+    if (match) {
+      return match[1].trim();
+    }
+    const textPattern = /<ac:plain-text-body>([\s\S]*?)<\/ac:plain-text-body>/i;
+    const textMatch = macroContent.match(textPattern);
+    if (textMatch) {
+      return textMatch[1].trim();
+    }
+    return null;
+  }
+  /**
+   * 파일명 생성
+   * @param pageSlug 페이지 슬러그
+   * @param index 다이어그램 인덱스
+   * @returns .drawio 파일명
+   */
+  generateFilename(pageSlug, index) {
+    return `${pageSlug}-diagram-${index}.drawio`;
+  }
+  /**
+   * HTML에서 Draw.io 매크로 제거 및 플레이스홀더로 치환
+   * @param html 원본 HTML
+   * @param macros 추출된 매크로 배열
+   * @returns 플레이스홀더가 삽입된 HTML
+   */
+  replaceWithPlaceholders(html, macros) {
+    let result = html;
+    for (let i = macros.length - 1; i >= 0; i--) {
+      const macro = macros[i];
+      const placeholder = `<p>__DRAWIO_PLACEHOLDER_${i}__</p>`;
+      result = result.substring(0, macro.startIndex) + placeholder + result.substring(macro.endIndex);
+    }
+    return result;
+  }
+  /**
+   * 플레이스홀더를 Obsidian 임베딩 코드로 복원
+   * @param markdown 플레이스홀더가 포함된 마크다운
+   * @param filenames 생성된 .drawio 파일명 배열
+   * @returns 최종 마크다운
+   */
+  restorePlaceholders(markdown, filenames) {
+    let result = markdown;
+    for (let i = 0; i < filenames.length; i++) {
+      const escapedPlaceholder = `\\_\\_DRAWIO\\_PLACEHOLDER\\_${i}\\_\\_`;
+      const embedding = `![[${filenames[i]}]]`;
+      result = result.replace(escapedPlaceholder, embedding);
+    }
+    return result;
+  }
+};
+
+// src/converters/AttachmentDownloader.ts
+var AttachmentDownloader = class {
+  constructor(confluenceClient, fileManager) {
+    this.confluenceClient = confluenceClient;
+    this.fileManager = fileManager;
+  }
+  /**
+   * 페이지의 모든 첨부파일 다운로드
+   * @param pageId Confluence 페이지 ID
+   * @param pageSlug 페이지 슬러그 (로컬 폴더명)
+   * @param onProgress 진행률 콜백 (current, total)
+   * @returns URL → 로컬 경로 매핑
+   */
+  async downloadAttachments(pageId, pageSlug, onProgress) {
+    const urlToPathMap = /* @__PURE__ */ new Map();
+    try {
+      const attachments = await this.confluenceClient.getAttachments(pageId);
+      if (attachments.length === 0) {
+        console.log(`[AttachmentDownloader] No attachments found for page ${pageId}`);
+        return urlToPathMap;
+      }
+      console.log(`[AttachmentDownloader] Downloading ${attachments.length} attachments for page ${pageId}`);
+      for (let i = 0; i < attachments.length; i++) {
+        const attachment = attachments[i];
+        try {
+          if (onProgress) {
+            onProgress(i + 1, attachments.length);
+          }
+          const data = await this.confluenceClient.downloadAttachment(attachment.downloadUrl);
+          const localPath = await this.fileManager.writeAttachment(
+            attachment.title,
+            data,
+            pageSlug
+          );
+          const confluenceUrl = attachment.downloadUrl;
+          urlToPathMap.set(confluenceUrl, localPath);
+          urlToPathMap.set(attachment.title, localPath);
+          console.log(`[AttachmentDownloader] Downloaded: ${attachment.title} \u2192 ${localPath}`);
+        } catch (error) {
+          console.warn(`[AttachmentDownloader] Failed to download ${attachment.title}:`, error);
+        }
+      }
+      return urlToPathMap;
+    } catch (error) {
+      console.error(`[AttachmentDownloader] Failed to download attachments for page ${pageId}:`, error);
+      return urlToPathMap;
+    }
+  }
+  /**
+   * 마크다운 내 첨부파일 URL을 로컬 경로로 변환
+   * @param markdown 원본 마크다운
+   * @param urlToPathMap URL → 로컬 경로 매핑
+   * @returns 변환된 마크다운
+   */
+  replaceAttachmentUrls(markdown, urlToPathMap) {
+    let result = markdown;
+    for (const [url, localPath] of urlToPathMap.entries()) {
+      const escapedUrl = url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const urlPattern = new RegExp(`\\]\\(${escapedUrl}\\)`, "g");
+      result = result.replace(urlPattern, `](${localPath})`);
+      const imgPattern = new RegExp(`src="${escapedUrl}"`, "g");
+      result = result.replace(imgPattern, `src="${localPath}"`);
+    }
+    return result;
+  }
+};
+
+// src/converters/PageLinkTransformer.ts
+var PageLinkTransformer = class {
+  /**
+   * HTML에서 Confluence 페이지 링크 추출
+   * @param html Confluence HTML
+   * @returns Map<pageId, originalUrl>
+   */
+  extractPageLinks(html) {
+    const pageLinks = /* @__PURE__ */ new Map();
+    const linkPatterns = [
+      /href="([^"]*\/wiki\/spaces\/[^\/]+\/pages\/(\d+)[^"]*)"/gi,
+      /href="([^"]*\/wiki\/pages\/(\d+)[^"]*)"/gi,
+      /href="(https?:\/\/[^\/]+\/wiki\/spaces\/[^\/]+\/pages\/(\d+)[^"]*)"/gi
+    ];
+    for (const pattern of linkPatterns) {
+      let match;
+      while ((match = pattern.exec(html)) !== null) {
+        const url = match[1];
+        const pageId = match[2];
+        pageLinks.set(pageId, url);
+      }
+    }
+    console.log(`[PageLinkTransformer] Found ${pageLinks.size} Confluence page links`);
+    return pageLinks;
+  }
+  /**
+   * 마크다운 내 Confluence 링크를 Obsidian 위키링크로 변환
+   * @param markdown 원본 마크다운
+   * @param pageIdToFileMap 페이지 ID → 파일명 매핑 (SyncHistory에서 제공)
+   * @returns 변환된 마크다운
+   */
+  transformLinks(markdown, pageIdToFileMap) {
+    let result = markdown;
+    const linkPattern = /\[([^\]]+)\]\(([^)]*\/wiki\/(?:spaces\/[^\/]+\/)?pages\/(\d+)[^)]*)\)/g;
+    result = result.replace(linkPattern, (match, text, url, pageId) => {
+      const filename = pageIdToFileMap.get(pageId);
+      if (filename) {
+        const filenameWithoutExt = filename.replace(/\.md$/, "");
+        if (text === filenameWithoutExt || text === filename) {
+          return `[[${filenameWithoutExt}]]`;
+        }
+        return `[[${filenameWithoutExt}|${text}]]`;
+      } else {
+        return `${match} <!-- TODO: Link to unsynced page (ID: ${pageId}) -->`;
+      }
+    });
+    return result;
+  }
+  /**
+   * 외부 링크 여부 확인
+   * @param url URL
+   * @returns true if external link
+   */
+  isExternalLink(url) {
+    return !/\/wiki\/(?:spaces\/[^\/]+\/)?pages\/\d+/.test(url);
+  }
+};
+
+// src/converters/MarkdownConverter.ts
 var MarkdownConverter = class {
   constructor() {
     this.turndown = new import_turndown.default({
@@ -18276,12 +18779,23 @@ var MarkdownConverter = class {
       emDelimiter: "*",
       strongDelimiter: "**"
     });
+    this.plantUMLParser = new PlantUMLParser();
+    this.drawioParser = new DrawioParser();
+    this.pageLinkTransformer = new PageLinkTransformer();
     this.configureTurndown();
   }
   /**
    * Turndown 변환 규칙 설정
    */
   configureTurndown() {
+    this.turndown.addRule("preserveComments", {
+      filter: (node) => {
+        return node.nodeType === 8;
+      },
+      replacement: (content) => {
+        return `<!--${content}-->`;
+      }
+    });
     this.turndown.addRule("confluenceCodeBlock", {
       filter: (node) => {
         var _a;
@@ -18313,14 +18827,55 @@ ${content}
   /**
    * Confluence 페이지를 마크다운으로 변환
    * @param page Confluence 페이지 객체
+   * @param pageSlug 페이지 슬러그 (파일명 생성용)
+   * @param fileManager FileManager 인스턴스 (파일 저장용, optional)
+   * @param confluenceClient ConfluenceClient 인스턴스 (첨부파일 다운로드용, optional)
+   * @param syncHistory SyncHistory 인스턴스 (페이지 링크 변환용, optional)
+   * @param onAttachmentProgress 첨부파일 다운로드 진행률 콜백
    * @returns 변환된 마크다운 문자열
    */
-  async convertPage(page) {
+  async convertPage(page, pageSlug, fileManager, confluenceClient, syncHistory, onAttachmentProgress) {
     if (!page.content || page.content.trim() === "") {
       return "";
     }
     try {
-      const markdown = this.turndown.turndown(page.content);
+      let processedContent = page.content;
+      const plantUMLMacros = this.plantUMLParser.extractMacros(processedContent);
+      if (plantUMLMacros.length > 0) {
+        processedContent = this.plantUMLParser.replaceWithPlaceholders(processedContent, plantUMLMacros);
+      }
+      const drawioMacros = this.drawioParser.extractMacros(processedContent);
+      const drawioFilenames = [];
+      if (drawioMacros.length > 0 && pageSlug && fileManager) {
+        for (let i = 0; i < drawioMacros.length; i++) {
+          const filename = this.drawioParser.generateFilename(pageSlug, i);
+          await fileManager.writeDrawioFile(filename, drawioMacros[i].xml);
+          drawioFilenames.push(filename);
+        }
+        processedContent = this.drawioParser.replaceWithPlaceholders(processedContent, drawioMacros);
+      }
+      let markdown = this.turndown.turndown(processedContent);
+      if (plantUMLMacros.length > 0) {
+        markdown = this.plantUMLParser.restorePlaceholders(markdown, plantUMLMacros);
+      }
+      if (drawioFilenames.length > 0) {
+        markdown = this.drawioParser.restorePlaceholders(markdown, drawioFilenames);
+      }
+      if (pageSlug && fileManager && confluenceClient) {
+        const attachmentDownloader = new AttachmentDownloader(confluenceClient, fileManager);
+        const urlToPathMap = await attachmentDownloader.downloadAttachments(
+          page.id,
+          pageSlug,
+          onAttachmentProgress
+        );
+        if (urlToPathMap.size > 0) {
+          markdown = attachmentDownloader.replaceAttachmentUrls(markdown, urlToPathMap);
+        }
+      }
+      if (syncHistory) {
+        const pageIdToFileMap = syncHistory.getPageIdToFileMap();
+        markdown = this.pageLinkTransformer.transformLinks(markdown, pageIdToFileMap);
+      }
       return markdown.trim();
     } catch (error) {
       console.error(`[MarkdownConverter] Failed to convert page ${page.id}:`, error);
@@ -18336,7 +18891,16 @@ ${content}
     if (!html || html.trim() === "") {
       return "";
     }
-    return this.turndown.turndown(html).trim();
+    const plantUMLMacros = this.plantUMLParser.extractMacros(html);
+    let processedContent = html;
+    if (plantUMLMacros.length > 0) {
+      processedContent = this.plantUMLParser.replaceWithPlaceholders(html, plantUMLMacros);
+    }
+    let markdown = this.turndown.turndown(processedContent);
+    if (plantUMLMacros.length > 0) {
+      markdown = this.plantUMLParser.restorePlaceholders(markdown, plantUMLMacros);
+    }
+    return markdown.trim();
   }
 };
 
@@ -21000,6 +21564,41 @@ var safeLoad = renamed("safeLoad", "load");
 var safeLoadAll = renamed("safeLoadAll", "loadAll");
 var safeDump = renamed("safeDump", "dump");
 
+// src/utils/ContentRegionParser.ts
+var CONFLUENCE_START_MARKER = "<!-- CONFLUENCE_START -->";
+var CONFLUENCE_END_MARKER = "<!-- CONFLUENCE_END -->";
+function parseFileContent(content) {
+  const hasStartMarker = content.includes(CONFLUENCE_START_MARKER);
+  const hasEndMarker = content.includes(CONFLUENCE_END_MARKER);
+  if (!hasStartMarker || !hasEndMarker) {
+    return {
+      confluenceContent: content,
+      localNotes: "",
+      hasMarkers: false
+    };
+  }
+  const startIndex = content.indexOf(CONFLUENCE_START_MARKER);
+  const endIndex = content.indexOf(CONFLUENCE_END_MARKER);
+  if (startIndex === -1 || endIndex === -1 || startIndex >= endIndex) {
+    return {
+      confluenceContent: content,
+      localNotes: "",
+      hasMarkers: false
+    };
+  }
+  const beforeMarker = content.substring(0, startIndex);
+  const confluenceSection = content.substring(
+    startIndex + CONFLUENCE_START_MARKER.length,
+    endIndex
+  ).trim();
+  const afterMarker = content.substring(endIndex + CONFLUENCE_END_MARKER.length).trim();
+  return {
+    confluenceContent: confluenceSection,
+    localNotes: afterMarker,
+    hasMarkers: true
+  };
+}
+
 // src/converters/MetadataBuilder.ts
 var MetadataBuilder = class {
   /**
@@ -21044,16 +21643,17 @@ ${yamlString}---`;
     }
   }
   /**
-   * Frontmatter와 마크다운 본문을 결합
+   * Frontmatter와 마크다운 본문을 결합 (Confluence 영역 마커 포함)
    * @param frontmatter YAML Frontmatter 문자열
    * @param markdown 마크다운 본문
-   * @returns 최종 파일 콘텐츠
+   * @returns 최종 파일 콘텐츠 (마커로 감싼 Confluence 영역)
    */
   combineContent(frontmatter, markdown) {
     return `${frontmatter}
 
+${CONFLUENCE_START_MARKER}
 ${markdown}
-`;
+${CONFLUENCE_END_MARKER}`;
   }
 };
 
@@ -21079,14 +21679,189 @@ function generateSlug(title) {
   return slug;
 }
 
+// src/sync/SyncHistory.ts
+var SyncHistory = class {
+  constructor(app, pluginId = "confluence-sync") {
+    this.app = app;
+    this.pluginId = pluginId;
+    this.history = /* @__PURE__ */ new Map();
+    this.historyFilePath = `.obsidian/plugins/${pluginId}/sync-history.json`;
+  }
+  /**
+   * 이력 파일 로드
+   */
+  async loadHistory() {
+    try {
+      const adapter = this.app.vault.adapter;
+      const exists = await adapter.exists(this.historyFilePath);
+      if (!exists) {
+        console.log("[SyncHistory] No history file found, starting fresh");
+        this.history = /* @__PURE__ */ new Map();
+        return this.history;
+      }
+      const content = await adapter.read(this.historyFilePath);
+      const data = JSON.parse(content);
+      this.history = new Map(Object.entries(data));
+      console.log(`[SyncHistory] Loaded ${this.history.size} records`);
+      return this.history;
+    } catch (error) {
+      console.error("[SyncHistory] Failed to load history:", error);
+      this.history = /* @__PURE__ */ new Map();
+      return this.history;
+    }
+  }
+  /**
+   * 이력 파일 저장
+   */
+  async saveHistory(records) {
+    try {
+      const adapter = this.app.vault.adapter;
+      if (records) {
+        this.history = records;
+      }
+      const data = Object.fromEntries(this.history);
+      const content = JSON.stringify(data, null, 2);
+      const dirPath = this.historyFilePath.substring(0, this.historyFilePath.lastIndexOf("/"));
+      const dirExists = await adapter.exists(dirPath);
+      if (!dirExists) {
+        await adapter.mkdir(dirPath);
+      }
+      await adapter.write(this.historyFilePath, content);
+      console.log(`[SyncHistory] Saved ${this.history.size} records`);
+    } catch (error) {
+      console.error("[SyncHistory] Failed to save history:", error);
+      throw new Error(`Failed to save sync history: ${error instanceof Error ? error.message : "Unknown error"}`);
+    }
+  }
+  /**
+   * 특정 페이지의 이력 레코드 조회
+   */
+  getRecord(pageId) {
+    return this.history.get(pageId);
+  }
+  /**
+   * 페이지 이력 레코드 업데이트
+   */
+  updateRecord(pageId, record) {
+    this.history.set(pageId, record);
+  }
+  /**
+   * 전체 이력 초기화
+   */
+  async clearHistory() {
+    this.history.clear();
+    await this.saveHistory();
+    console.log("[SyncHistory] History cleared");
+  }
+  /**
+   * 현재 로드된 이력 반환
+   */
+  getAll() {
+    return this.history;
+  }
+  /**
+   * 이력 레코드 개수
+   */
+  size() {
+    return this.history.size;
+  }
+  /**
+   * 페이지 ID → 파일명 매핑 생성
+   * @returns Map<pageId, filename>
+   */
+  getPageIdToFileMap() {
+    const pageIdToFileMap = /* @__PURE__ */ new Map();
+    for (const [pageId, record] of this.history.entries()) {
+      const filename = record.filePath.split("/").pop() || record.filePath;
+      pageIdToFileMap.set(pageId, filename);
+    }
+    console.log(`[SyncHistory] Generated page ID mapping for ${pageIdToFileMap.size} pages`);
+    return pageIdToFileMap;
+  }
+  /**
+   * 페이지 ID로 파일명 조회
+   * @param pageId Confluence 페이지 ID
+   * @returns 파일명 (확장자 포함) 또는 undefined
+   */
+  getFilenameByPageId(pageId) {
+    const record = this.history.get(pageId);
+    if (!record) {
+      return void 0;
+    }
+    const filename = record.filePath.split("/").pop() || record.filePath;
+    return filename;
+  }
+};
+
+// src/sync/ChangeDetector.ts
+var ChangeDetector = class {
+  constructor(syncHistory, forceSync = false) {
+    this.syncHistory = syncHistory;
+    this.forceSync = forceSync;
+  }
+  /**
+   * 페이지가 업데이트 필요한지 확인
+   * @param page Confluence 페이지
+   * @param record 로컬 동기화 이력 레코드
+   * @returns 업데이트 필요 여부
+   */
+  needsUpdate(page, record) {
+    if (this.forceSync) {
+      console.log(`[ChangeDetector] Force sync enabled - updating page ${page.id}`);
+      return true;
+    }
+    if (!record) {
+      console.log(`[ChangeDetector] New page detected: ${page.id} (${page.title})`);
+      return true;
+    }
+    const confluenceDate = new Date(page.lastModified);
+    const localDate = new Date(record.lastModified);
+    const hasChanged = confluenceDate > localDate;
+    if (hasChanged) {
+      console.log(`[ChangeDetector] Page changed: ${page.id} (${page.title})`);
+      console.log(`  - Confluence: ${page.lastModified}`);
+      console.log(`  - Local: ${record.lastModified}`);
+    } else {
+      console.log(`[ChangeDetector] No changes: ${page.id} (${page.title})`);
+    }
+    return hasChanged;
+  }
+  /**
+   * 페이지 목록에서 변경된 페이지만 필터링
+   * @param pages Confluence 페이지 목록
+   * @returns 업데이트 필요한 페이지 목록
+   */
+  async filterChangedPages(pages) {
+    const changedPages = [];
+    for (const page of pages) {
+      const record = this.syncHistory.getRecord(page.id);
+      if (this.needsUpdate(page, record)) {
+        changedPages.push(page);
+      }
+    }
+    console.log(`[ChangeDetector] Filtered: ${changedPages.length}/${pages.length} pages need update`);
+    return changedPages;
+  }
+  /**
+   * 강제 동기화 옵션 설정
+   */
+  setForceSync(force) {
+    this.forceSync = force;
+  }
+};
+
 // src/sync/SyncEngine.ts
 var SyncEngine = class {
-  constructor(confluenceClient, fileManager, syncPath) {
+  constructor(app, confluenceClient, fileManager, syncPath, forceSync = false) {
+    this.app = app;
     this.confluenceClient = confluenceClient;
     this.fileManager = fileManager;
     this.syncPath = syncPath;
+    this.forceSync = forceSync;
     this.markdownConverter = new MarkdownConverter();
     this.metadataBuilder = new MetadataBuilder();
+    this.syncHistory = new SyncHistory(app);
+    this.changeDetector = new ChangeDetector(this.syncHistory, forceSync);
   }
   /**
    * 모든 Confluence 페이지 동기화
@@ -21095,23 +21870,42 @@ var SyncEngine = class {
     const result = {
       success: true,
       totalPages: 0,
+      updatedPages: 0,
+      skippedPages: 0,
       successCount: 0,
       failureCount: 0,
       errors: []
     };
     try {
       new import_obsidian3.Notice("\u{1F504} Confluence \uB3D9\uAE30\uD654 \uC2DC\uC791...");
-      const pages = await this.confluenceClient.searchPages();
-      result.totalPages = pages.length;
-      if (pages.length === 0) {
+      await this.syncHistory.loadHistory();
+      const allPages = await this.confluenceClient.searchPages();
+      result.totalPages = allPages.length;
+      if (allPages.length === 0) {
         new import_obsidian3.Notice("\u2139\uFE0F \uB3D9\uAE30\uD654\uD560 \uD398\uC774\uC9C0\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
         return result;
       }
-      new import_obsidian3.Notice(`\u{1F4C4} ${pages.length}\uAC1C \uD398\uC774\uC9C0 \uBC1C\uACAC. \uB3D9\uAE30\uD654 \uC911...`);
-      for (const page of pages) {
+      new import_obsidian3.Notice(`\u{1F4C4} ${allPages.length}\uAC1C \uD398\uC774\uC9C0 \uBC1C\uACAC. \uBCC0\uACBD \uAC10\uC9C0 \uC911...`);
+      const pagesToSync = await this.changeDetector.filterChangedPages(allPages);
+      result.updatedPages = pagesToSync.length;
+      result.skippedPages = allPages.length - pagesToSync.length;
+      if (pagesToSync.length === 0) {
+        new import_obsidian3.Notice("\u2139\uFE0F \uC5C5\uB370\uC774\uD2B8\uD560 \uD398\uC774\uC9C0\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4. \uBAA8\uB450 \uCD5C\uC2E0 \uC0C1\uD0DC\uC785\uB2C8\uB2E4.");
+        result.success = true;
+        return result;
+      }
+      new import_obsidian3.Notice(`\u{1F504} ${pagesToSync.length}\uAC1C \uD398\uC774\uC9C0 \uB3D9\uAE30\uD654 \uC911 (${result.skippedPages}\uAC1C \uC2A4\uD0B5)...`);
+      for (const page of pagesToSync) {
         try {
-          await this.syncPage(page);
+          const filePath = await this.syncPage(page);
           result.successCount++;
+          const record = {
+            pageId: page.id,
+            lastSyncedAt: (/* @__PURE__ */ new Date()).toISOString(),
+            lastModified: page.lastModified,
+            filePath
+          };
+          this.syncHistory.updateRecord(page.id, record);
         } catch (error) {
           result.failureCount++;
           result.errors.push({
@@ -21122,11 +21916,14 @@ var SyncEngine = class {
           console.error(`[SyncEngine] Failed to sync page ${page.id}:`, error);
         }
       }
+      await this.syncHistory.saveHistory();
       if (result.failureCount === 0) {
-        new import_obsidian3.Notice(`\u2713 ${result.successCount}\uAC1C \uD398\uC774\uC9C0 \uB3D9\uAE30\uD654 \uC644\uB8CC!`);
+        new import_obsidian3.Notice(
+          `\u2713 ${result.successCount}\uAC1C \uD398\uC774\uC9C0 \uB3D9\uAE30\uD654 \uC644\uB8CC! (${result.skippedPages}\uAC1C \uC2A4\uD0B5)`
+        );
       } else {
         new import_obsidian3.Notice(
-          `\u26A0\uFE0F \uB3D9\uAE30\uD654 \uC644\uB8CC: \uC131\uACF5 ${result.successCount}\uAC1C, \uC2E4\uD328 ${result.failureCount}\uAC1C`
+          `\u26A0\uFE0F \uB3D9\uAE30\uD654 \uC644\uB8CC: \uC131\uACF5 ${result.successCount}\uAC1C, \uC2E4\uD328 ${result.failureCount}\uAC1C, \uC2A4\uD0B5 ${result.skippedPages}\uAC1C`
         );
       }
       result.success = result.failureCount === 0;
@@ -21140,6 +21937,7 @@ var SyncEngine = class {
   }
   /**
    * 단일 페이지 동기화
+   * @returns 저장된 파일 경로
    */
   async syncPage(page) {
     const markdown = await this.markdownConverter.convertPage(page);
@@ -21149,17 +21947,14 @@ var SyncEngine = class {
     const fileName = await this.fileManager.ensureUniqueFileName(slug, this.syncPath);
     const filePath = `${this.syncPath}${fileName}`;
     await this.fileManager.writeFile(filePath, content);
+    return filePath;
   }
   /**
-   * 동기화 이력 로드 (미구현 - Future Story)
+   * 강제 동기화 옵션 설정
    */
-  async loadSyncHistory() {
-    return {};
-  }
-  /**
-   * 동기화 이력 저장 (미구현 - Future Story)
-   */
-  async saveSyncHistory(history) {
+  setForceSync(force) {
+    this.forceSync = force;
+    this.changeDetector.setForceSync(force);
   }
 };
 
@@ -21172,7 +21967,7 @@ var FileManager = class {
   /**
    * 파일을 Vault에 저장
    * @param filePath Vault 내 상대 경로 (예: "confluence/page.md")
-   * @param content 파일 내용
+   * @param content 파일 내용 (frontmatter + Confluence content with markers)
    */
   async writeFile(filePath, content) {
     try {
@@ -21187,10 +21982,14 @@ var FileManager = class {
         await this.ensureFolderExists(folderPath);
       }
       const existingFile = this.vault.getAbstractFileByPath(filePath);
+      let finalContent = content;
       if (existingFile instanceof import_obsidian4.TFile) {
-        await this.vault.modify(existingFile, content);
+        const existingContent = await this.vault.read(existingFile);
+        finalContent = this.mergeWithLocalNotes(content, existingContent);
+        await this.vault.modify(existingFile, finalContent);
       } else {
-        await this.vault.create(filePath, content);
+        finalContent = this.addLocalNotesTemplate(content);
+        await this.vault.create(filePath, finalContent);
       }
       new import_obsidian4.Notice(`\u2713 File saved: ${filePath}`);
     } catch (error) {
@@ -21203,6 +22002,40 @@ var FileManager = class {
         { filePath, error }
       );
     }
+  }
+  /**
+   * 기존 파일의 로컬 메모 영역을 새 콘텐츠와 병합
+   * @param newContent 새로운 Confluence 콘텐츠 (frontmatter + markers 포함)
+   * @param existingContent 기존 파일 콘텐츠
+   * @returns 병합된 콘텐츠
+   */
+  mergeWithLocalNotes(newContent, existingContent) {
+    if (!existingContent) {
+      return this.addLocalNotesTemplate(newContent);
+    }
+    const parsed = parseFileContent(existingContent);
+    if (parsed.localNotes) {
+      return `${newContent}
+
+${parsed.localNotes}`;
+    }
+    return this.addLocalNotesTemplate(newContent);
+  }
+  /**
+   * 신규 파일에 로컬 메모 템플릿 추가
+   * @param content Confluence 콘텐츠 (frontmatter + markers 포함)
+   * @returns 로컬 메모 템플릿이 추가된 콘텐츠
+   */
+  addLocalNotesTemplate(content) {
+    const template = `
+## Local Notes
+
+<!-- Add your personal notes here -->
+
+## Backlinks
+
+<!-- Link to related notes using [[Note Name]] -->`;
+    return `${content}${template}`;
   }
   /**
    * 고유한 파일명 생성 (중복 시 숫자 suffix 추가)
@@ -21263,6 +22096,101 @@ var FileManager = class {
         { filePath, error }
       );
     }
+  }
+  /**
+   * Draw.io 파일을 attachments 폴더에 저장
+   * @param filename 파일명 (예: "page-diagram-0.drawio")
+   * @param xml Draw.io XML 데이터
+   * @param attachmentsFolder attachments 폴더 경로 (기본: "confluence/attachments")
+   */
+  async writeDrawioFile(filename, xml, attachmentsFolder = "confluence/attachments") {
+    try {
+      if (filename.includes("../") || filename.includes("..\\")) {
+        throw new FileWriteError(
+          "Invalid filename: path traversal detected",
+          { filename }
+        );
+      }
+      await this.ensureFolderExists(attachmentsFolder);
+      const filePath = `${attachmentsFolder}/${filename}`;
+      const existingFile = this.vault.getAbstractFileByPath(filePath);
+      if (existingFile instanceof import_obsidian4.TFile) {
+        await this.vault.modify(existingFile, xml);
+      } else {
+        await this.vault.create(filePath, xml);
+      }
+      console.log(`[FileManager] Draw.io file saved: ${filePath}`);
+    } catch (error) {
+      console.error(`[FileManager] Failed to write Draw.io file ${filename}:`, error);
+      if (error instanceof FileWriteError) {
+        throw error;
+      }
+      throw new FileWriteError(
+        `Failed to write Draw.io file: ${error instanceof Error ? error.message : "Unknown error"}`,
+        { filename, error }
+      );
+    }
+  }
+  /**
+   * 첨부파일(바이너리)을 attachments 폴더에 저장
+   * @param filename 파일명
+   * @param data 파일 데이터 (ArrayBuffer)
+   * @param pageSlug 페이지 슬러그 (폴더명으로 사용)
+   * @returns 저장된 파일의 상대 경로
+   */
+  async writeAttachment(filename, data, pageSlug) {
+    try {
+      if (filename.includes("../") || filename.includes("..\\") || pageSlug.includes("../") || pageSlug.includes("..\\")) {
+        throw new FileWriteError(
+          "Invalid filename or pageSlug: path traversal detected",
+          { filename, pageSlug }
+        );
+      }
+      const attachmentFolder = `confluence/attachments/${pageSlug}`;
+      await this.ensureFolderExists(attachmentFolder);
+      const uniqueFilename = await this.ensureUniqueAttachmentFilename(filename, attachmentFolder);
+      const filePath = `${attachmentFolder}/${uniqueFilename}`;
+      const uint8Array = new Uint8Array(data);
+      const existingFile = this.vault.getAbstractFileByPath(filePath);
+      if (existingFile instanceof import_obsidian4.TFile) {
+        await this.vault.modifyBinary(existingFile, uint8Array);
+      } else {
+        await this.vault.createBinary(filePath, uint8Array);
+      }
+      console.log(`[FileManager] Attachment saved: ${filePath}`);
+      return filePath;
+    } catch (error) {
+      console.error(`[FileManager] Failed to write attachment ${filename}:`, error);
+      if (error instanceof FileWriteError) {
+        throw error;
+      }
+      throw new FileWriteError(
+        `Failed to write attachment: ${error instanceof Error ? error.message : "Unknown error"}`,
+        { filename, pageSlug, error }
+      );
+    }
+  }
+  /**
+   * 첨부파일 고유 파일명 생성 (중복 시 숫자 suffix 추가)
+   * @param filename 원본 파일명
+   * @param folderPath 폴더 경로
+   * @returns 고유한 파일명
+   */
+  async ensureUniqueAttachmentFilename(filename, folderPath) {
+    let uniqueName = filename;
+    let counter = 2;
+    while (await this.fileExists(`${folderPath}/${uniqueName}`)) {
+      const lastDotIndex = filename.lastIndexOf(".");
+      if (lastDotIndex > 0) {
+        const base = filename.substring(0, lastDotIndex);
+        const ext = filename.substring(lastDotIndex);
+        uniqueName = `${base}-${counter}${ext}`;
+      } else {
+        uniqueName = `${filename}-${counter}`;
+      }
+      counter++;
+    }
+    return uniqueName;
   }
 };
 
@@ -21328,9 +22256,11 @@ var ConfluenceSyncPlugin = class extends import_obsidian5.Plugin {
     try {
       const fileManager = new FileManager(this.app.vault);
       const syncEngine = new SyncEngine(
+        this.app,
         this.confluenceClient,
         fileManager,
-        this.settings.syncPath
+        this.settings.syncPath,
+        this.settings.forceFullSync
       );
       await syncEngine.syncAll();
     } catch (error) {
