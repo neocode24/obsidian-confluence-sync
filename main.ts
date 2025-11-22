@@ -4,6 +4,7 @@ import { PluginSettings, DEFAULT_SETTINGS } from './src/types/settings';
 import { ConfluenceClient } from './src/api/ConfluenceClient';
 import { SyncEngine } from './src/sync/SyncEngine';
 import { FileManager } from './src/utils/FileManager';
+import { CQLBuilder } from './src/utils/CQLBuilder';
 
 export default class ConfluenceSyncPlugin extends Plugin {
 	settings: PluginSettings;
@@ -89,6 +90,21 @@ export default class ConfluenceSyncPlugin extends Plugin {
 		}
 
 		try {
+			// Build CQL query from filters
+			const cqlBuilder = new CQLBuilder();
+
+			// Validate filters if enabled
+			if (this.settings.filters?.enabled) {
+				const isValid = cqlBuilder.validateFilters(this.settings.filters);
+				if (!isValid) {
+					new Notice('⚠️ 필터 설정이 유효하지 않습니다. 설정을 확인해주세요.');
+					return;
+				}
+			}
+
+			const cqlQuery = cqlBuilder.buildSearchQuery(this.settings.filters);
+			console.log('[ConfluenceSyncPlugin] CQL Query:', cqlQuery);
+
 			// Create FileManager and SyncEngine
 			const fileManager = new FileManager(this.app.vault);
 			const syncEngine = new SyncEngine(
@@ -96,7 +112,8 @@ export default class ConfluenceSyncPlugin extends Plugin {
 				this.confluenceClient,
 				fileManager,
 				this.settings.syncPath,
-				this.settings.forceFullSync
+				this.settings.forceFullSync,
+				cqlQuery
 			);
 
 			// Execute sync

@@ -35,7 +35,8 @@ export class SyncEngine {
     private confluenceClient: ConfluenceClient,
     private fileManager: FileManager,
     private syncPath: string,
-    private forceSync: boolean = false
+    private forceSync: boolean = false,
+    private cqlQuery: string = 'type = page'
   ) {
     this.markdownConverter = new MarkdownConverter();
     this.metadataBuilder = new MetadataBuilder();
@@ -63,8 +64,8 @@ export class SyncEngine {
       // 1. 동기화 이력 로드
       await this.syncHistory.loadHistory();
 
-      // 2. Confluence 페이지 조회
-      const allPages = await this.confluenceClient.searchPages();
+      // 2. Confluence 페이지 조회 (CQL 쿼리 적용)
+      const allPages = await this.confluenceClient.searchPages(this.cqlQuery);
       result.totalPages = allPages.length;
 
       if (allPages.length === 0) {
