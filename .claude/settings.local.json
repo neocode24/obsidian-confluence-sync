@@ -4,7 +4,17 @@
       "Bash(gh repo create:*)",
       "Bash(gh auth:*)",
       "Bash(gh project create:*)",
-      "Bash(gh issue create:*)"
+      "Bash(gh issue create:*)",
+      "SlashCommand(/BMad:agents:dev)",
+      "Bash(gh issue view:*)",
+      "Bash(gh project:*)",
+      "Bash(for i in {1..22})",
+      "Bash(do gh issue edit $i --add-project \"Confluence-Obsidian Sync\")",
+      "Bash(done)",
+      "Bash(npm install:*)",
+      "Bash(npm run build:*)",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
