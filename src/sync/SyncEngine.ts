@@ -7,6 +7,7 @@ import { generateSlug } from '../utils/slug';
 import { ConfluencePage } from '../types/confluence';
 import { SyncHistory, SyncHistoryRecord } from './SyncHistory';
 import { ChangeDetector } from './ChangeDetector';
+import { Logger, LogLevel } from '../utils/Logger';
 
 /**
  * 동기화 결과
@@ -29,6 +30,7 @@ export class SyncEngine {
   private metadataBuilder: MetadataBuilder;
   private syncHistory: SyncHistory;
   private changeDetector: ChangeDetector;
+  private logger: Logger;
 
   constructor(
     private app: App,
@@ -36,12 +38,14 @@ export class SyncEngine {
     private fileManager: FileManager,
     private syncPath: string,
     private forceSync: boolean = false,
-    private cqlQuery: string = 'type = page'
+    private cqlQuery: string = 'type = page',
+    logLevel: LogLevel = 'INFO'
   ) {
     this.markdownConverter = new MarkdownConverter();
     this.metadataBuilder = new MetadataBuilder();
     this.syncHistory = new SyncHistory(app);
     this.changeDetector = new ChangeDetector(this.syncHistory, forceSync);
+    this.logger = new Logger('SyncEngine', logLevel);
   }
 
   /**
@@ -59,16 +63,20 @@ export class SyncEngine {
     };
 
     try {
+      this.logger.info('Starting sync operation', { cqlQuery: this.cqlQuery, forceSync: this.forceSync });
       new Notice('🔄 Confluence 동기화 시작...');
 
       // 1. 동기화 이력 로드
       await this.syncHistory.loadHistory();
+      this.logger.debug('Sync history loaded');
 
       // 2. Confluence 페이지 조회 (CQL 쿼리 적용)
       const allPages = await this.confluenceClient.searchPages(this.cqlQuery);
       result.totalPages = allPages.length;
+      this.logger.info('Pages fetched from Confluence', { totalPages: allPages.length });
 
       if (allPages.length === 0) {
+        this.logger.info('No pages to sync');
         new Notice('ℹ️ 동기화할 페이지가 없습니다.');
         return result;
       }
@@ -79,8 +87,13 @@ export class SyncEngine {
       const pagesToSync = await this.changeDetector.filterChangedPages(allPages);
       result.updatedPages = pagesToSync.length;
       result.skippedPages = allPages.length - pagesToSync.length;
+      this.logger.info('Change detection completed', {
+        toSync: pagesToSync.length,
+        skipped: result.skippedPages
+      });
 
       if (pagesToSync.length === 0) {
+        this.logger.info('All pages are up to date');
         new Notice('ℹ️ 업데이트할 페이지가 없습니다. 모두 최신 상태입니다.');
         result.success = true;
         return result;
@@ -91,6 +104,7 @@ export class SyncEngine {
       // 4. 각 페이지 동기화
       for (const page of pagesToSync) {
         try {
+          this.logger.debug('Syncing page', { pageId: page.id, title: page.title });
           const filePath = await this.syncPage(page);
           result.successCount++;
 
@@ -109,19 +123,26 @@ export class SyncEngine {
             pageTitle: page.title,
             error: error instanceof Error ? error.message : 'Unknown error',
           });
-          console.error(`[SyncEngine] Failed to sync page ${page.id}:`, error);
+          this.logger.error('Failed to sync page', { pageId: page.id, title: page.title, error });
         }
       }
 
       // 6. 동기화 이력 저장
       await this.syncHistory.saveHistory();
+      this.logger.debug('Sync history saved');
 
       // 7. 결과 표시
       if (result.failureCount === 0) {
+        this.logger.info('Sync completed successfully', { successCount: result.successCount, skipped: result.skippedPages });
         new Notice(
           `✓ ${result.successCount}개 페이지 동기화 완료! (${result.skippedPages}개 스킵)`
         );
       } else {
+        this.logger.warn('Sync completed with errors', {
+          successCount: result.successCount,
+          failureCount: result.failureCount,
+          errors: result.errors
+        });
         new Notice(
           `⚠️ 동기화 완료: 성공 ${result.successCount}개, 실패 ${result.failureCount}개, 스킵 ${result.skippedPages}개`
         );
@@ -130,7 +151,7 @@ export class SyncEngine {
       result.success = result.failureCount === 0;
       return result;
     } catch (error) {
-      console.error('[SyncEngine] Sync failed:', error);
+      this.logger.error('Sync operation failed', error);
       new Notice(`❌ 동기화 실패: ${error instanceof Error ? error.message : 'Unknown error'}`);
       result.success = false;
       return result;

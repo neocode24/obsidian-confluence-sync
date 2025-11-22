@@ -17674,6 +17674,69 @@ var FileWriteError = class extends ConfluenceSyncError {
   }
 };
 
+// src/utils/Logger.ts
+var LOG_LEVEL_PRIORITY = {
+  DEBUG: 0,
+  INFO: 1,
+  WARN: 2,
+  ERROR: 3
+};
+var Logger = class {
+  constructor(componentName, logLevel = "INFO") {
+    this.componentName = componentName;
+    this.logLevel = logLevel;
+  }
+  /**
+   * 로그 레벨 설정
+   */
+  setLogLevel(level) {
+    this.logLevel = level;
+  }
+  /**
+   * DEBUG 로그
+   */
+  debug(message, data) {
+    this.log("DEBUG", message, data);
+  }
+  /**
+   * INFO 로그
+   */
+  info(message, data) {
+    this.log("INFO", message, data);
+  }
+  /**
+   * WARN 로그
+   */
+  warn(message, data) {
+    this.log("WARN", message, data);
+  }
+  /**
+   * ERROR 로그
+   */
+  error(message, error) {
+    if (error instanceof Error) {
+      this.log("ERROR", message, { error: error.message, stack: error.stack });
+    } else {
+      this.log("ERROR", message, error);
+    }
+  }
+  /**
+   * 로그 출력 (내부 메서드)
+   */
+  log(level, message, data) {
+    if (LOG_LEVEL_PRIORITY[level] < LOG_LEVEL_PRIORITY[this.logLevel]) {
+      return;
+    }
+    const timestamp2 = (/* @__PURE__ */ new Date()).toISOString().replace("T", " ").substring(0, 19);
+    const logMessage = `[${timestamp2}] [${level}] [${this.componentName}] ${message}`;
+    if (data !== void 0) {
+      console.log(logMessage, data);
+    } else {
+      console.log(logMessage);
+    }
+  }
+};
+
 // src/api/ConfluenceClient.ts
 var DEFAULT_OAUTH_CONFIG = {
   redirectUri: "http://localhost:8080/callback",
@@ -17683,10 +17746,11 @@ var DEFAULT_OAUTH_CONFIG = {
   resourcesUrl: "https://api.atlassian.com/oauth/token/accessible-resources"
 };
 var ConfluenceClient = class {
-  constructor(oauthConfig) {
+  constructor(oauthConfig, logLevel = "INFO") {
     this.currentTenant = null;
     this.localServer = null;
     this.oauthConfig = oauthConfig;
+    this.logger = new Logger("ConfluenceClient", logLevel);
   }
   /**
    * Set callback to be called when token is refreshed
@@ -17699,7 +17763,7 @@ var ConfluenceClient = class {
    */
   async initialize(tenantConfig) {
     this.currentTenant = tenantConfig;
-    console.log(`Confluence client initialized for ${tenantConfig.url}`);
+    this.logger.info("Client initialized", { url: tenantConfig.url });
   }
   /**
    * Initiate OAuth 2.0 authorization flow
@@ -17709,6 +17773,7 @@ var ConfluenceClient = class {
       throw new MCPConnectionError("Tenant\uAC00 \uCD08\uAE30\uD654\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.");
     }
     try {
+      this.logger.info("Initiating OAuth flow");
       const state = crypto.randomBytes(16).toString("hex");
       const authUrl = new URL(DEFAULT_OAUTH_CONFIG.authorizationUrl);
       authUrl.searchParams.set("audience", "api.atlassian.com");
@@ -17722,7 +17787,7 @@ var ConfluenceClient = class {
       window.open(authUrl.toString(), "_blank");
       new import_obsidian.Notice("\uBE0C\uB77C\uC6B0\uC800\uC5D0\uC11C Confluence \uC778\uC99D\uC744 \uC9C4\uD589\uD574\uC8FC\uC138\uC694.");
     } catch (error) {
-      console.error("OAuth flow failed:", error);
+      this.logger.error("OAuth flow failed", error);
       throw new OAuthError(
         `OAuth \uC778\uC99D \uC2E4\uD328: ${error instanceof Error ? error.message : "Unknown error"}`
       );
@@ -17771,7 +17836,7 @@ var ConfluenceClient = class {
         }
       });
       this.localServer.listen(8080, () => {
-        console.log("OAuth callback server started on port 8080");
+        this.logger.debug("OAuth callback server started on port 8080");
         resolve();
       });
       this.localServer.on("error", (error) => {
@@ -17807,7 +17872,7 @@ var ConfluenceClient = class {
       };
       this.currentTenant.cloudId = cloudId;
     }
-    console.log("OAuth tokens obtained successfully");
+    this.logger.info("OAuth tokens obtained successfully", { cloudId });
     new import_obsidian.Notice("\u2705 Confluence \uC778\uC99D \uC131\uACF5!");
   }
   /**
@@ -17835,7 +17900,7 @@ var ConfluenceClient = class {
     if (this.localServer) {
       this.localServer.close();
       this.localServer = null;
-      console.log("OAuth callback server stopped");
+      this.logger.debug("OAuth callback server stopped");
     }
   }
   /**
@@ -17855,7 +17920,7 @@ var ConfluenceClient = class {
    */
   restoreTenant(tenant) {
     this.currentTenant = tenant;
-    console.log("Tenant state restored:", tenant.url);
+    this.logger.info("Tenant state restored", { url: tenant.url });
   }
   /**
    * Get access token (refresh if needed)
@@ -17868,13 +17933,16 @@ var ConfluenceClient = class {
     const now = Date.now();
     const expiresAt = this.currentTenant.oauthToken.expiresAt;
     const timeUntilExpiry = expiresAt - now;
-    console.log(`[Confluence] Token check - Expires at: ${new Date(expiresAt).toISOString()}, Now: ${new Date(now).toISOString()}, Time until expiry: ${Math.floor(timeUntilExpiry / 1e3)}s`);
+    this.logger.debug("Token expiry check", {
+      expiresAt: new Date(expiresAt).toISOString(),
+      timeUntilExpiry: Math.floor(timeUntilExpiry / 1e3)
+    });
     if (timeUntilExpiry <= 6e4) {
-      console.log("[Confluence] Token expired or expiring soon, refreshing...");
+      this.logger.info("Token expired or expiring soon, refreshing");
       try {
         await this.refreshAccessToken();
       } catch (error) {
-        console.error("[Confluence] Token refresh failed:", error);
+        this.logger.error("Token refresh failed", error);
         throw new OAuthError(`Failed to refresh token: ${error instanceof Error ? error.message : "Unknown error"}`);
       }
     }
@@ -17889,7 +17957,7 @@ var ConfluenceClient = class {
       throw new OAuthError("No refresh token available. Please reconnect to Confluence.");
     }
     try {
-      console.log("[Confluence] Refreshing access token...");
+      this.logger.debug("Refreshing access token");
       const response = await (0, import_obsidian.requestUrl)({
         url: DEFAULT_OAUTH_CONFIG.tokenUrl,
         method: "POST",
@@ -17912,13 +17980,14 @@ var ConfluenceClient = class {
         refreshToken: tokens.refresh_token || this.currentTenant.oauthToken.refreshToken,
         expiresAt: Date.now() + tokens.expires_in * 1e3
       };
-      console.log("[Confluence] Access token refreshed successfully");
-      console.log(`[Confluence] New token expires at: ${new Date(this.currentTenant.oauthToken.expiresAt).toISOString()}`);
+      this.logger.info("Access token refreshed successfully", {
+        expiresAt: new Date(this.currentTenant.oauthToken.expiresAt).toISOString()
+      });
       if (this.onTokenRefreshed && this.currentTenant) {
         await this.onTokenRefreshed(this.currentTenant);
       }
     } catch (error) {
-      console.error("[Confluence] Token refresh failed:", error);
+      this.logger.error("Token refresh failed", error);
       if (error.status === 400 || error.status === 401) {
         throw new OAuthError("Refresh token is invalid or expired. Please reconnect to Confluence from Settings.");
       }
@@ -17956,7 +18025,7 @@ var ConfluenceClient = class {
         expand: "body.storage,version,metadata.labels"
       });
       const url = `${endpoint}?${params.toString()}`;
-      console.log(`[Confluence] Searching pages with CQL: ${cql}`);
+      this.logger.debug("Searching pages", { cql, limit });
       const response = await (0, import_obsidian.requestUrl)({
         url,
         method: "GET",
@@ -17967,9 +18036,9 @@ var ConfluenceClient = class {
       });
       const data = response.json;
       const pages = this.parseSearchResults(data);
-      console.log(`[Confluence] Found ${pages.length} pages`);
-      pages.forEach((page) => {
-        console.log(`  - ID: ${page.id}, Title: "${page.title}", Space: ${page.spaceKey}`);
+      this.logger.info("Pages fetched", { count: pages.length });
+      this.logger.debug("Page details", {
+        pages: pages.map((p) => ({ id: p.id, title: p.title, space: p.spaceKey }))
       });
       return pages;
     } catch (error) {
@@ -18043,7 +18112,7 @@ var ConfluenceClient = class {
     try {
       const accessToken = await this.getAccessToken();
       const url = `https://api.atlassian.com/ex/confluence/${this.currentTenant.cloudId}/rest/api/content/${pageId}/child/attachment`;
-      console.log(`[Confluence] Fetching attachments for page: ${pageId}`);
+      this.logger.debug("Fetching attachments", { pageId });
       const response = await (0, import_obsidian.requestUrl)({
         url,
         method: "GET",
@@ -18054,7 +18123,7 @@ var ConfluenceClient = class {
       });
       const data = response.json;
       const attachments = data.results || [];
-      console.log(`[Confluence] Found ${attachments.length} attachments`);
+      this.logger.debug("Attachments fetched", { count: attachments.length });
       return attachments.map((att) => {
         var _a2, _b, _c;
         return {
@@ -18067,7 +18136,7 @@ var ConfluenceClient = class {
         };
       });
     } catch (error) {
-      console.error("[Confluence] Failed to fetch attachments:", error);
+      this.logger.error("Failed to fetch attachments", { pageId, error });
       if (error.status === 401) {
         throw new OAuthError("Authentication failed");
       }
@@ -18098,7 +18167,7 @@ var ConfluenceClient = class {
     try {
       const accessToken = await this.getAccessToken();
       const fullUrl = `${this.currentTenant.url}${downloadUrl}`;
-      console.log(`[Confluence] Downloading attachment: ${downloadUrl}`);
+      this.logger.debug("Downloading attachment", { downloadUrl });
       const response = await (0, import_obsidian.requestUrl)({
         url: fullUrl,
         method: "GET",
@@ -18108,7 +18177,7 @@ var ConfluenceClient = class {
       });
       return response.arrayBuffer;
     } catch (error) {
-      console.error("[Confluence] Failed to download attachment:", error);
+      this.logger.error("Failed to download attachment", { downloadUrl, error });
       if (error.status === 401) {
         throw new OAuthError("Authentication failed");
       }
@@ -18159,6 +18228,7 @@ var ConfluenceSettingsTab = class extends import_obsidian2.PluginSettingTab {
     this.displayTenantSection(containerEl);
     this.displayFiltersSection(containerEl);
     this.displayBackgroundCheckSection(containerEl);
+    this.displayLoggingSection(containerEl);
     this.displayConnectionStatus(containerEl);
   }
   displayOAuthSection(containerEl) {
@@ -18366,6 +18436,23 @@ var ConfluenceSettingsTab = class extends import_obsidian2.PluginSettingTab {
       });
     }
   }
+  displayLoggingSection(containerEl) {
+    containerEl.createEl("h3", { text: "\uB85C\uAE45 \uC124\uC815" });
+    containerEl.createEl("p", {
+      text: "\uB85C\uADF8 \uB808\uBCA8\uC744 \uC124\uC815\uD558\uC5EC \uB514\uBC84\uAE45 \uC815\uBCF4\uB97C \uC870\uC808\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+      cls: "setting-item-description"
+    });
+    new import_obsidian2.Setting(containerEl).setName("\uB85C\uADF8 \uB808\uBCA8").setDesc("\uB85C\uADF8 \uCD9C\uB825 \uC218\uC900 (DEBUG: \uBAA8\uB4E0 \uB85C\uADF8, INFO: \uC77C\uBC18 \uC815\uBCF4, WARN: \uACBD\uACE0, ERROR: \uC624\uB958\uB9CC)").addDropdown(
+      (dropdown) => dropdown.addOption("DEBUG", "DEBUG").addOption("INFO", "INFO").addOption("WARN", "WARN").addOption("ERROR", "ERROR").setValue(this.plugin.settings.logLevel).onChange(async (value) => {
+        this.plugin.settings.logLevel = value;
+        await this.plugin.saveSettings();
+      })
+    );
+    containerEl.createEl("p", {
+      text: "\u2139\uFE0F \uB85C\uADF8\uB294 \uAC1C\uBC1C\uC790 \uB3C4\uAD6C \uCF58\uC194\uC5D0\uC11C \uD655\uC778\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4 (Ctrl+Shift+I \uB610\uB294 Cmd+Option+I)",
+      cls: "setting-item-description"
+    });
+  }
   displayConnectionStatus(containerEl) {
     var _a, _b;
     const statusContainer = containerEl.createDiv("confluence-connection-status");
@@ -18461,7 +18548,8 @@ var DEFAULT_SETTINGS = {
     rootPageIds: []
   },
   backgroundCheck: true,
-  backgroundCheckOnStartup: true
+  backgroundCheckOnStartup: true,
+  logLevel: "INFO"
 };
 
 // src/sync/SyncEngine.ts
@@ -21881,7 +21969,7 @@ var ChangeDetector = class {
 
 // src/sync/SyncEngine.ts
 var SyncEngine = class {
-  constructor(app, confluenceClient, fileManager, syncPath, forceSync = false, cqlQuery = "type = page") {
+  constructor(app, confluenceClient, fileManager, syncPath, forceSync = false, cqlQuery = "type = page", logLevel = "INFO") {
     this.app = app;
     this.confluenceClient = confluenceClient;
     this.fileManager = fileManager;
@@ -21892,6 +21980,7 @@ var SyncEngine = class {
     this.metadataBuilder = new MetadataBuilder();
     this.syncHistory = new SyncHistory(app);
     this.changeDetector = new ChangeDetector(this.syncHistory, forceSync);
+    this.logger = new Logger("SyncEngine", logLevel);
   }
   /**
    * 모든 Confluence 페이지 동기화
@@ -21907,11 +21996,15 @@ var SyncEngine = class {
       errors: []
     };
     try {
+      this.logger.info("Starting sync operation", { cqlQuery: this.cqlQuery, forceSync: this.forceSync });
       new import_obsidian3.Notice("\u{1F504} Confluence \uB3D9\uAE30\uD654 \uC2DC\uC791...");
       await this.syncHistory.loadHistory();
+      this.logger.debug("Sync history loaded");
       const allPages = await this.confluenceClient.searchPages(this.cqlQuery);
       result.totalPages = allPages.length;
+      this.logger.info("Pages fetched from Confluence", { totalPages: allPages.length });
       if (allPages.length === 0) {
+        this.logger.info("No pages to sync");
         new import_obsidian3.Notice("\u2139\uFE0F \uB3D9\uAE30\uD654\uD560 \uD398\uC774\uC9C0\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
         return result;
       }
@@ -21919,7 +22012,12 @@ var SyncEngine = class {
       const pagesToSync = await this.changeDetector.filterChangedPages(allPages);
       result.updatedPages = pagesToSync.length;
       result.skippedPages = allPages.length - pagesToSync.length;
+      this.logger.info("Change detection completed", {
+        toSync: pagesToSync.length,
+        skipped: result.skippedPages
+      });
       if (pagesToSync.length === 0) {
+        this.logger.info("All pages are up to date");
         new import_obsidian3.Notice("\u2139\uFE0F \uC5C5\uB370\uC774\uD2B8\uD560 \uD398\uC774\uC9C0\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4. \uBAA8\uB450 \uCD5C\uC2E0 \uC0C1\uD0DC\uC785\uB2C8\uB2E4.");
         result.success = true;
         return result;
@@ -21927,6 +22025,7 @@ var SyncEngine = class {
       new import_obsidian3.Notice(`\u{1F504} ${pagesToSync.length}\uAC1C \uD398\uC774\uC9C0 \uB3D9\uAE30\uD654 \uC911 (${result.skippedPages}\uAC1C \uC2A4\uD0B5)...`);
       for (const page of pagesToSync) {
         try {
+          this.logger.debug("Syncing page", { pageId: page.id, title: page.title });
           const filePath = await this.syncPage(page);
           result.successCount++;
           const record = {
@@ -21943,15 +22042,22 @@ var SyncEngine = class {
             pageTitle: page.title,
             error: error instanceof Error ? error.message : "Unknown error"
           });
-          console.error(`[SyncEngine] Failed to sync page ${page.id}:`, error);
+          this.logger.error("Failed to sync page", { pageId: page.id, title: page.title, error });
         }
       }
       await this.syncHistory.saveHistory();
+      this.logger.debug("Sync history saved");
       if (result.failureCount === 0) {
+        this.logger.info("Sync completed successfully", { successCount: result.successCount, skipped: result.skippedPages });
         new import_obsidian3.Notice(
           `\u2713 ${result.successCount}\uAC1C \uD398\uC774\uC9C0 \uB3D9\uAE30\uD654 \uC644\uB8CC! (${result.skippedPages}\uAC1C \uC2A4\uD0B5)`
         );
       } else {
+        this.logger.warn("Sync completed with errors", {
+          successCount: result.successCount,
+          failureCount: result.failureCount,
+          errors: result.errors
+        });
         new import_obsidian3.Notice(
           `\u26A0\uFE0F \uB3D9\uAE30\uD654 \uC644\uB8CC: \uC131\uACF5 ${result.successCount}\uAC1C, \uC2E4\uD328 ${result.failureCount}\uAC1C, \uC2A4\uD0B5 ${result.skippedPages}\uAC1C`
         );
@@ -21959,7 +22065,7 @@ var SyncEngine = class {
       result.success = result.failureCount === 0;
       return result;
     } catch (error) {
-      console.error("[SyncEngine] Sync failed:", error);
+      this.logger.error("Sync operation failed", error);
       new import_obsidian3.Notice(`\u274C \uB3D9\uAE30\uD654 \uC2E4\uD328: ${error instanceof Error ? error.message : "Unknown error"}`);
       result.success = false;
       return result;
@@ -22304,10 +22410,11 @@ var CQLBuilder = class {
 
 // src/sync/BackgroundChangeDetector.ts
 var BackgroundChangeDetector = class {
-  constructor(confluenceClient, syncHistory, filters) {
+  constructor(confluenceClient, syncHistory, filters, logLevel = "INFO") {
     this.confluenceClient = confluenceClient;
     this.syncHistory = syncHistory;
     this.filters = filters;
+    this.logger = new Logger("BackgroundChangeDetector", logLevel);
   }
   /**
    * Confluence 변경사항 체크
@@ -22315,17 +22422,20 @@ var BackgroundChangeDetector = class {
    */
   async checkForChanges() {
     try {
+      this.logger.debug("Starting background change check");
       if (!this.confluenceClient.isConnected()) {
-        console.log("[BackgroundChangeDetector] Not connected, skipping check");
+        this.logger.debug("Not connected, skipping check");
         return 0;
       }
       const cqlBuilder = new CQLBuilder();
       const cqlQuery = cqlBuilder.buildSearchQuery(this.filters);
+      this.logger.debug("CQL query built", { cqlQuery });
       const pages = await this.confluenceClient.searchPages(cqlQuery, 100);
       if (pages.length === 0) {
-        console.log("[BackgroundChangeDetector] No pages found");
+        this.logger.debug("No pages found");
         return 0;
       }
+      this.logger.debug("Pages fetched", { count: pages.length });
       await this.syncHistory.loadHistory();
       let changedCount = 0;
       for (const page of pages) {
@@ -22340,10 +22450,13 @@ var BackgroundChangeDetector = class {
           }
         }
       }
-      console.log(`[BackgroundChangeDetector] Found ${changedCount} changed pages out of ${pages.length}`);
+      this.logger.info("Background check completed", {
+        totalPages: pages.length,
+        changedCount
+      });
       return changedCount;
     } catch (error) {
-      console.log("[BackgroundChangeDetector] Check failed (silently):", error);
+      this.logger.debug("Check failed (silently)", error);
       return 0;
     }
   }
@@ -22354,21 +22467,26 @@ var ConfluenceSyncPlugin = class extends import_obsidian5.Plugin {
   constructor(app, manifest) {
     super(app, manifest);
     this.confluenceClient = null;
+    this.logger = new Logger("ConfluenceSyncPlugin", "INFO");
   }
   async onload() {
     var _a, _b;
-    console.log("Loading Confluence Sync plugin");
+    this.logger.info("Loading Confluence Sync plugin");
     await this.loadSettings();
+    this.logger.setLogLevel(this.settings.logLevel);
+    this.logger.debug("Settings loaded", { logLevel: this.settings.logLevel });
     this.addSettingTab(new ConfluenceSettingsTab(this.app, this));
     if (((_a = this.settings.oauthConfig) == null ? void 0 : _a.clientId) && ((_b = this.settings.oauthConfig) == null ? void 0 : _b.clientSecret)) {
-      this.confluenceClient = new ConfluenceClient(this.settings.oauthConfig);
+      this.confluenceClient = new ConfluenceClient(this.settings.oauthConfig, this.settings.logLevel);
+      this.logger.info("Confluence client initialized");
       this.confluenceClient.setTokenRefreshCallback(async (updatedTenant) => {
         this.settings.tenants[0] = updatedTenant;
         await this.saveSettings();
-        console.log("[Plugin] Token refreshed and saved to settings");
+        this.logger.debug("OAuth token refreshed and saved");
       });
       if (this.settings.tenants.length > 0 && this.settings.tenants[0].oauthToken) {
         this.confluenceClient.restoreTenant(this.settings.tenants[0]);
+        this.logger.info("Tenant state restored", { url: this.settings.tenants[0].url });
       }
     }
     this.addCommand({
@@ -22386,12 +22504,14 @@ var ConfluenceSyncPlugin = class extends import_obsidian5.Plugin {
       }
     });
     if (this.settings.backgroundCheck && this.settings.backgroundCheckOnStartup) {
+      this.logger.info("Starting background change detection on startup");
       this.runBackgroundCheck();
     }
+    this.logger.info("Confluence Sync plugin loaded successfully");
     new import_obsidian5.Notice("Confluence Sync plugin loaded successfully!");
   }
   onunload() {
-    console.log("Unloading Confluence Sync plugin");
+    this.logger.info("Unloading Confluence Sync plugin");
   }
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
@@ -22404,11 +22524,11 @@ var ConfluenceSyncPlugin = class extends import_obsidian5.Plugin {
    */
   async runBackgroundCheck() {
     if (!this.confluenceClient || !this.confluenceClient.isConnected()) {
-      console.log("[ConfluenceSyncPlugin] Background check skipped - not connected");
+      this.logger.debug("Background check skipped - not connected");
       return;
     }
     if (!this.settings.showNotifications) {
-      console.log("[ConfluenceSyncPlugin] Background check skipped - notifications disabled");
+      this.logger.debug("Background check skipped - notifications disabled");
       return;
     }
     try {
@@ -22416,14 +22536,18 @@ var ConfluenceSyncPlugin = class extends import_obsidian5.Plugin {
       const backgroundDetector = new BackgroundChangeDetector(
         this.confluenceClient,
         syncHistory,
-        this.settings.filters
+        this.settings.filters,
+        this.settings.logLevel
       );
       const changedCount = await backgroundDetector.checkForChanges();
       if (changedCount > 0) {
+        this.logger.info("Background check found changes", { changedCount });
         this.showChangeNotification(changedCount);
+      } else {
+        this.logger.debug("Background check completed - no changes");
       }
     } catch (error) {
-      console.log("[ConfluenceSyncPlugin] Background check failed:", error);
+      this.logger.warn("Background check failed", error);
     }
   }
   /**
@@ -22458,27 +22582,31 @@ var ConfluenceSyncPlugin = class extends import_obsidian5.Plugin {
   async syncConfluencePages() {
     var _a;
     if (!this.confluenceClient) {
+      this.logger.warn("Sync attempted without Confluence client");
       new import_obsidian5.Notice("\u26A0\uFE0F Confluence OAuth \uC124\uC815\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC124\uC815 \uD0ED\uC5D0\uC11C \uBA3C\uC800 \uC5F0\uACB0\uD558\uC138\uC694.");
       return;
     }
     if (!this.confluenceClient.isConnected()) {
+      this.logger.warn("Sync attempted without connection");
       new import_obsidian5.Notice("\u26A0\uFE0F Confluence\uC5D0 \uC5F0\uACB0\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uC124\uC815 \uD0ED\uC5D0\uC11C \uBA3C\uC800 \uC5F0\uACB0\uD558\uC138\uC694.");
       return;
     }
     if (this.settings.showNotifications) {
       new import_obsidian5.Notice("\u{1F504} Confluence \uB3D9\uAE30\uD654\uB97C \uC2DC\uC791\uD569\uB2C8\uB2E4...");
     }
+    this.logger.info("Starting Confluence sync");
     try {
       const cqlBuilder = new CQLBuilder();
       if ((_a = this.settings.filters) == null ? void 0 : _a.enabled) {
         const isValid = cqlBuilder.validateFilters(this.settings.filters);
         if (!isValid) {
+          this.logger.warn("Invalid filter settings");
           new import_obsidian5.Notice("\u26A0\uFE0F \uD544\uD130 \uC124\uC815\uC774 \uC720\uD6A8\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC124\uC815\uC744 \uD655\uC778\uD574\uC8FC\uC138\uC694.");
           return;
         }
       }
       const cqlQuery = cqlBuilder.buildSearchQuery(this.settings.filters);
-      console.log("[ConfluenceSyncPlugin] CQL Query:", cqlQuery);
+      this.logger.debug("CQL Query built", { cqlQuery });
       const fileManager = new FileManager(this.app.vault);
       const syncEngine = new SyncEngine(
         this.app,
@@ -22486,9 +22614,18 @@ var ConfluenceSyncPlugin = class extends import_obsidian5.Plugin {
         fileManager,
         this.settings.syncPath,
         this.settings.forceFullSync,
-        cqlQuery
+        cqlQuery,
+        this.settings.logLevel
       );
       const result = await syncEngine.syncAll();
+      this.logger.info("Sync completed", {
+        success: result.success,
+        totalPages: result.totalPages,
+        updatedPages: result.updatedPages,
+        skippedPages: result.skippedPages,
+        successCount: result.successCount,
+        failureCount: result.failureCount
+      });
       if (this.settings.showNotifications) {
         if (result.success) {
           new import_obsidian5.Notice(`\u2705 \uB3D9\uAE30\uD654 \uC644\uB8CC: ${result.updatedPages}\uAC1C \uD398\uC774\uC9C0 \uC5C5\uB370\uC774\uD2B8, ${result.skippedPages}\uAC1C \uC2A4\uD0B5`);
@@ -22497,7 +22634,7 @@ var ConfluenceSyncPlugin = class extends import_obsidian5.Plugin {
         }
       }
     } catch (error) {
-      console.error("[ConfluenceSyncPlugin] Sync error:", error);
+      this.logger.error("Sync failed", error);
       new import_obsidian5.Notice(`\u274C \uB3D9\uAE30\uD654 \uC624\uB958: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
   }
