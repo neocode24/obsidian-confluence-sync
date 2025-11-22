@@ -1,9 +1,13 @@
 import { App, Plugin, PluginManifest, Notice } from 'obsidian';
 import { ConfluenceSettingsTab } from './src/ui/settings/SettingsTab';
 import { PluginSettings, DEFAULT_SETTINGS } from './src/types/settings';
+import { ConfluenceClient } from './src/api/ConfluenceClient';
+import { SyncEngine } from './src/sync/SyncEngine';
+import { FileManager } from './src/utils/FileManager';
 
 export default class ConfluenceSyncPlugin extends Plugin {
 	settings: PluginSettings;
+	private confluenceClient: ConfluenceClient | null = null;
 
 	constructor(app: App, manifest: PluginManifest) {
 		super(app, manifest);
@@ -18,7 +22,26 @@ export default class ConfluenceSyncPlugin extends Plugin {
 		// Add settings tab
 		this.addSettingTab(new ConfluenceSettingsTab(this.app, this));
 
-		// Add command to test plugin is working
+		// Initialize Confluence Client if OAuth is configured
+		if (this.settings.oauthConfig?.clientId && this.settings.oauthConfig?.clientSecret) {
+			this.confluenceClient = new ConfluenceClient(this.settings.oauthConfig);
+
+			// Restore tenant state if saved
+			if (this.settings.tenants.length > 0 && this.settings.tenants[0].oauthToken) {
+				this.confluenceClient.restoreTenant(this.settings.tenants[0]);
+			}
+		}
+
+		// Add sync command
+		this.addCommand({
+			id: 'sync-confluence-pages',
+			name: 'Sync Confluence Pages',
+			callback: async () => {
+				await this.syncConfluencePages();
+			}
+		});
+
+		// Add test command
 		this.addCommand({
 			id: 'test-confluence-sync',
 			name: 'Test Confluence Sync',
@@ -40,5 +63,38 @@ export default class ConfluenceSyncPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+	}
+
+	/**
+	 * Confluence 페이지 동기화 실행
+	 */
+	private async syncConfluencePages(): Promise<void> {
+		// Check if Confluence client is initialized
+		if (!this.confluenceClient) {
+			new Notice('⚠️ Confluence OAuth 설정이 필요합니다. 설정 탭에서 먼저 연결하세요.');
+			return;
+		}
+
+		// Check if connected
+		if (!this.confluenceClient.isConnected()) {
+			new Notice('⚠️ Confluence에 연결되지 않았습니다. 설정 탭에서 먼저 연결하세요.');
+			return;
+		}
+
+		try {
+			// Create FileManager and SyncEngine
+			const fileManager = new FileManager(this.app.vault);
+			const syncEngine = new SyncEngine(
+				this.confluenceClient,
+				fileManager,
+				this.settings.syncPath
+			);
+
+			// Execute sync
+			await syncEngine.syncAll();
+		} catch (error) {
+			console.error('[ConfluenceSyncPlugin] Sync error:', error);
+			new Notice(`❌ 동기화 오류: ${error instanceof Error ? error.message : 'Unknown error'}`);
+		}
 	}
 }

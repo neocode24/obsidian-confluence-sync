@@ -146,6 +146,24 @@ export class ConfluenceSettingsTab extends PluginSettingTab {
 	private displayTenantSection(containerEl: HTMLElement): void {
 		containerEl.createEl('h3', { text: 'Confluence 연결' });
 
+		// Sync Path Setting
+		new Setting(containerEl)
+			.setName('동기화 경로')
+			.setDesc('Confluence 페이지를 저장할 Vault 내 폴더 경로 (기본값: confluence/)')
+			.addText(text => text
+				.setPlaceholder('confluence/')
+				.setValue(this.plugin.settings.syncPath)
+				.onChange(async (value) => {
+					// 경로 정규화 (끝에 / 추가)
+					let normalizedPath = value.trim();
+					if (normalizedPath && !normalizedPath.endsWith('/')) {
+						normalizedPath += '/';
+					}
+					this.plugin.settings.syncPath = normalizedPath || 'confluence/';
+					await this.plugin.saveSettings();
+				})
+			);
+
 		// Tenant URL Input
 		new Setting(containerEl)
 			.setName('Confluence URL')
