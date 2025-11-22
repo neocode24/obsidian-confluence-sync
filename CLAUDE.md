@@ -39,10 +39,35 @@ git checkout -b feature/story-1-1-project-init
 Story의 Acceptance Criteria를 기준으로 구현:
 1. AC (Acceptance Criteria) 확인
 2. 코드 작성
-3. 테스트 작성 및 실행
+3. 로컬 빌드 및 테스트
 4. 문서 업데이트
 
-### 3. Commit 및 Push
+### 3. 로컬 테스트 (필수)
+
+**IMPORTANT**: `fix/*` 브랜치의 경우, **로컬에서 완전히 검증 완료 후** Push/PR 진행
+
+#### 로컬 빌드 및 테스트 절차
+```bash
+# 1. 빌드
+npm run build
+
+# 2. Obsidian vault의 플러그인 디렉토리에 복사
+cp main.js manifest.json styles.css ~/.obsidian/plugins/obsidian-confluence-sync/
+
+# 또는 심볼릭 링크 사용 (권장)
+ln -s $(pwd)/main.js ~/.obsidian/plugins/obsidian-confluence-sync/main.js
+
+# 3. Obsidian에서 플러그인 리로드 (Ctrl+R / Cmd+R)
+# 4. 기능 테스트 및 로그 확인 (개발자 도구 콘솔)
+```
+
+#### Fix 브랜치 특별 규칙
+- ✅ 로컬에서 완전히 동작 확인 후 Push
+- ✅ 콘솔 로그로 수정 사항 검증
+- ✅ 여러 시나리오 테스트 (재연결, 토큰 만료 등)
+- ❌ 미검증 상태로 Push하여 사용자가 재테스트하게 하지 않음
+
+### 4. Commit 및 Push
 
 커밋 메시지 컨벤션:
 ```
@@ -106,11 +131,14 @@ GitHub Project 보드 상태 업데이트:
 
 ## 작업 체크리스트
 
+### Story 작업 체크리스트
 각 Story 작업 시 반드시 확인:
 
 - [ ] GitHub Issue에서 Story 내용 확인 (`gh issue view <number>`)
 - [ ] feature 브랜치 생성 및 체크아웃
 - [ ] Acceptance Criteria 기반 구현
+- [ ] 로컬 빌드 (`npm run build`)
+- [ ] Obsidian에서 동작 확인
 - [ ] 테스트 작성 및 실행
 - [ ] 문서 업데이트 (필요시)
 - [ ] Commit with proper message (Closes #<issue>)
@@ -119,6 +147,23 @@ GitHub Project 보드 상태 업데이트:
 - [ ] PR merge 후 Issue 상태 확인
 - [ ] GitHub Project 보드 업데이트
 - [ ] 다음 Story로 이동
+
+### Fix 작업 체크리스트 (더 엄격한 검증 필요)
+버그 수정 작업 시 반드시 확인:
+
+- [ ] 문제 재현 및 원인 파악
+- [ ] fix 브랜치 생성 및 체크아웃
+- [ ] 수정 사항 구현
+- [ ] **로컬 빌드 및 Obsidian 설치** (`npm run build`)
+- [ ] **원래 문제 시나리오 재현 → 수정 확인**
+- [ ] **추가 시나리오 테스트** (엣지 케이스, 다른 조건 등)
+- [ ] **콘솔 로그로 동작 검증** (예상대로 작동하는지 확인)
+- [ ] **여러 번 반복 테스트** (안정성 확인)
+- [ ] ✅ 완벽히 검증 완료 후에만 Commit
+- [ ] ✅ 완벽히 검증 완료 후에만 Push
+- [ ] ✅ 완벽히 검증 완료 후에만 PR 생성
+- [ ] PR에 테스트 결과 및 로그 포함
+- [ ] PR merge 후 main 브랜치로 돌아가기
 
 ## 브랜치 전략
 
@@ -179,8 +224,11 @@ npm run build  # 프로덕션 빌드
 4. ❌ GitHub Project 상태 미업데이트 → ✅ 완료 시 Done으로 이동
 5. ❌ AC 확인 없이 구현 → ✅ AC 체크리스트 기반 작업
 6. ❌ API Key 사용 → ✅ MCP OAuth만 사용
+7. **❌ Fix 브랜치를 로컬 테스트 없이 Push → ✅ 로컬에서 완벽히 검증 후 Push/PR**
+8. **❌ 한 번만 테스트하고 Push → ✅ 여러 시나리오로 반복 테스트**
 
 ---
 
 **업데이트 이력**
 - 2024-11-22: 초기 작성 (BMAD 프레임워크, GitHub Issues 기반 관리, Feature 브랜치 전략)
+- 2025-11-22: Fix 브랜치 로컬 테스트 정책 추가
