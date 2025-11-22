@@ -17727,7 +17727,14 @@ var Logger = class {
     if (LOG_LEVEL_PRIORITY[level] < LOG_LEVEL_PRIORITY[this.logLevel]) {
       return;
     }
-    const timestamp2 = (/* @__PURE__ */ new Date()).toISOString().replace("T", " ").substring(0, 19);
+    const now = /* @__PURE__ */ new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    const hours = String(now.getHours()).padStart(2, "0");
+    const minutes = String(now.getMinutes()).padStart(2, "0");
+    const seconds = String(now.getSeconds()).padStart(2, "0");
+    const timestamp2 = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
     const logMessage = `[${timestamp2}] [${level}] [${this.componentName}] ${message}`;
     if (data !== void 0) {
       console.log(logMessage, data);
@@ -17936,7 +17943,7 @@ var ConfluenceClient = class {
     const tokenPreview = this.currentTenant.oauthToken.accessToken.substring(0, 20) + "...";
     this.logger.debug("Token expiry check", {
       tokenPreview,
-      expiresAt: new Date(expiresAt).toISOString(),
+      expiresAt: new Date(expiresAt).toLocaleString("ko-KR"),
       timeUntilExpiry: Math.floor(timeUntilExpiry / 1e3)
     });
     if (timeUntilExpiry <= 6e4) {
@@ -17984,7 +17991,7 @@ var ConfluenceClient = class {
         expiresAt: Date.now() + tokens.expires_in * 1e3
       };
       this.logger.info("Access token refreshed successfully", {
-        expiresAt: new Date(this.currentTenant.oauthToken.expiresAt).toISOString()
+        expiresAt: new Date(this.currentTenant.oauthToken.expiresAt).toLocaleString("ko-KR")
       });
       if (this.onTokenRefreshed && this.currentTenant) {
         await this.onTokenRefreshed(this.currentTenant);
