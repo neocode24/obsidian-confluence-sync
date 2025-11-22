@@ -269,6 +269,10 @@ export class ConfluenceSettingsTab extends PluginSettingTab {
 				await this.plugin.saveSettings();
 			}
 
+			// Update plugin's confluenceClient reference
+			this.plugin.confluenceClient = this.confluenceClient;
+			console.log('[SettingsTab] Updated plugin confluenceClient reference');
+
 			// Refresh status display
 			this.display();
 

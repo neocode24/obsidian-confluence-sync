@@ -266,9 +266,21 @@ export class ConfluenceClient {
 			throw new OAuthError('Not authenticated');
 		}
 
-		// Check if token is expired
-		if (this.currentTenant.oauthToken.expiresAt <= Date.now()) {
-			await this.refreshAccessToken();
+		// Check if token is expired (with 60 second buffer)
+		const now = Date.now();
+		const expiresAt = this.currentTenant.oauthToken.expiresAt;
+		const timeUntilExpiry = expiresAt - now;
+
+		console.log(`[Confluence] Token check - Expires at: ${new Date(expiresAt).toISOString()}, Now: ${new Date(now).toISOString()}, Time until expiry: ${Math.floor(timeUntilExpiry / 1000)}s`);
+
+		if (timeUntilExpiry <= 60000) { // Refresh if expires within 60 seconds
+			console.log('[Confluence] Token expired or expiring soon, refreshing...');
+			try {
+				await this.refreshAccessToken();
+			} catch (error) {
+				console.error('[Confluence] Token refresh failed:', error);
+				throw new OAuthError(`Failed to refresh token: ${error instanceof Error ? error.message : 'Unknown error'}`);
+			}
 		}
 
 		return this.currentTenant.oauthToken.accessToken;
@@ -279,36 +291,53 @@ export class ConfluenceClient {
 	 */
 	private async refreshAccessToken(): Promise<void> {
 		if (!this.currentTenant?.oauthToken?.refreshToken) {
-			throw new OAuthError('No refresh token available');
+			throw new OAuthError('No refresh token available. Please reconnect to Confluence.');
 		}
 
-		const response = await requestUrl({
-			url: DEFAULT_OAUTH_CONFIG.tokenUrl,
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json'
-			},
-			body: JSON.stringify({
-				grant_type: 'refresh_token',
-				client_id: this.oauthConfig.clientId,
-				client_secret: this.oauthConfig.clientSecret,
-				refresh_token: this.currentTenant.oauthToken.refreshToken
-			})
-		});
+		try {
+			console.log('[Confluence] Refreshing access token...');
+			const response = await requestUrl({
+				url: DEFAULT_OAUTH_CONFIG.tokenUrl,
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({
+					grant_type: 'refresh_token',
+					client_id: this.oauthConfig.clientId,
+					client_secret: this.oauthConfig.clientSecret,
+					refresh_token: this.currentTenant.oauthToken.refreshToken
+				})
+			});
 
-		const tokens = response.json;
+			const tokens = response.json;
 
-		this.currentTenant.oauthToken = {
-			accessToken: tokens.access_token,
-			refreshToken: tokens.refresh_token || this.currentTenant.oauthToken.refreshToken,
-			expiresAt: Date.now() + (tokens.expires_in * 1000)
-		};
+			if (!tokens.access_token) {
+				throw new OAuthError('Invalid token response from server');
+			}
 
-		console.log('[Confluence] Access token refreshed successfully');
+			this.currentTenant.oauthToken = {
+				accessToken: tokens.access_token,
+				refreshToken: tokens.refresh_token || this.currentTenant.oauthToken.refreshToken,
+				expiresAt: Date.now() + (tokens.expires_in * 1000)
+			};
 
-		// Call callback to save updated tenant to settings
-		if (this.onTokenRefreshed && this.currentTenant) {
-			await this.onTokenRefreshed(this.currentTenant);
+			console.log('[Confluence] Access token refreshed successfully');
+			console.log(`[Confluence] New token expires at: ${new Date(this.currentTenant.oauthToken.expiresAt).toISOString()}`);
+
+			// Call callback to save updated tenant to settings
+			if (this.onTokenRefreshed && this.currentTenant) {
+				await this.onTokenRefreshed(this.currentTenant);
+			}
+		} catch (error: any) {
+			console.error('[Confluence] Token refresh failed:', error);
+
+			// Check if it's a 400/401 error (invalid refresh token)
+			if (error.status === 400 || error.status === 401) {
+				throw new OAuthError('Refresh token is invalid or expired. Please reconnect to Confluence from Settings.');
+			}
+
+			throw error;
 		}
 	}
 

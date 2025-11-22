@@ -7,7 +7,7 @@ import { FileManager } from './src/utils/FileManager';
 
 export default class ConfluenceSyncPlugin extends Plugin {
 	settings: PluginSettings;
-	private confluenceClient: ConfluenceClient | null = null;
+	confluenceClient: ConfluenceClient | null = null;
 
 	constructor(app: App, manifest: PluginManifest) {
 		super(app, manifest);
