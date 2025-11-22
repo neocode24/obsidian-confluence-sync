@@ -9,6 +9,7 @@ import {
 	ConfluenceAPIError,
 	PermissionError
 } from '../types/errors';
+import { Logger, LogLevel } from '../utils/Logger';
 
 export interface OAuthToken {
 	accessToken: string;
@@ -49,9 +50,11 @@ export class ConfluenceClient {
 	private localServer: http.Server | null = null;
 	private oauthConfig: OAuthConfig;
 	private onTokenRefreshed?: (tenant: TenantConfig) => Promise<void>;
+	private logger: Logger;
 
-	constructor(oauthConfig: OAuthConfig) {
+	constructor(oauthConfig: OAuthConfig, logLevel: LogLevel = 'INFO') {
 		this.oauthConfig = oauthConfig;
+		this.logger = new Logger('ConfluenceClient', logLevel);
 	}
 
 	/**
@@ -66,7 +69,7 @@ export class ConfluenceClient {
 	 */
 	async initialize(tenantConfig: TenantConfig): Promise<void> {
 		this.currentTenant = tenantConfig;
-		console.log(`Confluence client initialized for ${tenantConfig.url}`);
+		this.logger.info('Client initialized', { url: tenantConfig.url });
 	}
 
 	/**
@@ -78,6 +81,7 @@ export class ConfluenceClient {
 		}
 
 		try {
+			this.logger.info('Initiating OAuth flow');
 			const state = crypto.randomBytes(16).toString('hex');
 
 			// Build authorization URL
@@ -97,7 +101,7 @@ export class ConfluenceClient {
 			window.open(authUrl.toString(), '_blank');
 			new Notice('브라우저에서 Confluence 인증을 진행해주세요.');
 		} catch (error) {
-			console.error('OAuth flow failed:', error);
+			this.logger.error('OAuth flow failed', error);
 			throw new OAuthError(
 				`OAuth 인증 실패: ${error instanceof Error ? error.message : 'Unknown error'}`
 			);
@@ -155,7 +159,7 @@ export class ConfluenceClient {
 			});
 
 			this.localServer.listen(8080, () => {
-				console.log('OAuth callback server started on port 8080');
+				this.logger.debug('OAuth callback server started on port 8080');
 				resolve();
 			});
 
@@ -198,7 +202,7 @@ export class ConfluenceClient {
 			this.currentTenant.cloudId = cloudId;
 		}
 
-		console.log('OAuth tokens obtained successfully');
+		this.logger.info('OAuth tokens obtained successfully', { cloudId });
 		new Notice('✅ Confluence 인증 성공!');
 	}
 
@@ -230,7 +234,7 @@ export class ConfluenceClient {
 		if (this.localServer) {
 			this.localServer.close();
 			this.localServer = null;
-			console.log('OAuth callback server stopped');
+			this.logger.debug('OAuth callback server stopped');
 		}
 	}
 
@@ -255,7 +259,7 @@ export class ConfluenceClient {
 	 */
 	restoreTenant(tenant: TenantConfig): void {
 		this.currentTenant = tenant;
-		console.log('Tenant state restored:', tenant.url);
+		this.logger.info('Tenant state restored', { url: tenant.url });
 	}
 
 	/**
@@ -271,14 +275,17 @@ export class ConfluenceClient {
 		const expiresAt = this.currentTenant.oauthToken.expiresAt;
 		const timeUntilExpiry = expiresAt - now;
 
-		console.log(`[Confluence] Token check - Expires at: ${new Date(expiresAt).toISOString()}, Now: ${new Date(now).toISOString()}, Time until expiry: ${Math.floor(timeUntilExpiry / 1000)}s`);
+		this.logger.debug('Token expiry check', {
+			expiresAt: new Date(expiresAt).toISOString(),
+			timeUntilExpiry: Math.floor(timeUntilExpiry / 1000)
+		});
 
 		if (timeUntilExpiry <= 60000) { // Refresh if expires within 60 seconds
-			console.log('[Confluence] Token expired or expiring soon, refreshing...');
+			this.logger.info('Token expired or expiring soon, refreshing');
 			try {
 				await this.refreshAccessToken();
 			} catch (error) {
-				console.error('[Confluence] Token refresh failed:', error);
+				this.logger.error('Token refresh failed', error);
 				throw new OAuthError(`Failed to refresh token: ${error instanceof Error ? error.message : 'Unknown error'}`);
 			}
 		}
@@ -295,7 +302,7 @@ export class ConfluenceClient {
 		}
 
 		try {
-			console.log('[Confluence] Refreshing access token...');
+			this.logger.debug('Refreshing access token');
 			const response = await requestUrl({
 				url: DEFAULT_OAUTH_CONFIG.tokenUrl,
 				method: 'POST',
@@ -322,15 +329,16 @@ export class ConfluenceClient {
 				expiresAt: Date.now() + (tokens.expires_in * 1000)
 			};
 
-			console.log('[Confluence] Access token refreshed successfully');
-			console.log(`[Confluence] New token expires at: ${new Date(this.currentTenant.oauthToken.expiresAt).toISOString()}`);
+			this.logger.info('Access token refreshed successfully', {
+				expiresAt: new Date(this.currentTenant.oauthToken.expiresAt).toISOString()
+			});
 
 			// Call callback to save updated tenant to settings
 			if (this.onTokenRefreshed && this.currentTenant) {
 				await this.onTokenRefreshed(this.currentTenant);
 			}
 		} catch (error: any) {
-			console.error('[Confluence] Token refresh failed:', error);
+			this.logger.error('Token refresh failed', error);
 
 			// Check if it's a 400/401 error (invalid refresh token)
 			if (error.status === 400 || error.status === 401) {
@@ -381,7 +389,7 @@ export class ConfluenceClient {
 
 			const url = `${endpoint}?${params.toString()}`;
 
-			console.log(`[Confluence] Searching pages with CQL: ${cql}`);
+			this.logger.debug('Searching pages', { cql, limit });
 
 			const response = await requestUrl({
 				url: url,
@@ -396,9 +404,9 @@ export class ConfluenceClient {
 			const data = response.json;
 			const pages = this.parseSearchResults(data);
 
-			console.log(`[Confluence] Found ${pages.length} pages`);
-			pages.forEach(page => {
-				console.log(`  - ID: ${page.id}, Title: "${page.title}", Space: ${page.spaceKey}`);
+			this.logger.info('Pages fetched', { count: pages.length });
+			this.logger.debug('Page details', {
+				pages: pages.map(p => ({ id: p.id, title: p.title, space: p.spaceKey }))
 			});
 
 			return pages;
@@ -490,7 +498,7 @@ export class ConfluenceClient {
 			const accessToken = await this.getAccessToken();
 			const url = `https://api.atlassian.com/ex/confluence/${this.currentTenant.cloudId}/rest/api/content/${pageId}/child/attachment`;
 
-			console.log(`[Confluence] Fetching attachments for page: ${pageId}`);
+			this.logger.debug('Fetching attachments', { pageId });
 
 			const response = await requestUrl({
 				url,
@@ -504,7 +512,7 @@ export class ConfluenceClient {
 			const data = response.json;
 			const attachments = data.results || [];
 
-			console.log(`[Confluence] Found ${attachments.length} attachments`);
+			this.logger.debug('Attachments fetched', { count: attachments.length });
 
 			return attachments.map((att: any) => ({
 				id: att.id,
@@ -515,7 +523,7 @@ export class ConfluenceClient {
 				pageId: pageId
 			}));
 		} catch (error: any) {
-			console.error('[Confluence] Failed to fetch attachments:', error);
+			this.logger.error('Failed to fetch attachments', { pageId, error });
 
 			if (error.status === 401) {
 				throw new OAuthError('Authentication failed');
@@ -555,7 +563,7 @@ export class ConfluenceClient {
 			// Download URL is relative, construct full URL
 			const fullUrl = `${this.currentTenant.url}${downloadUrl}`;
 
-			console.log(`[Confluence] Downloading attachment: ${downloadUrl}`);
+			this.logger.debug('Downloading attachment', { downloadUrl });
 
 			const response = await requestUrl({
 				url: fullUrl,
@@ -567,7 +575,7 @@ export class ConfluenceClient {
 
 			return response.arrayBuffer;
 		} catch (error: any) {
-			console.error('[Confluence] Failed to download attachment:', error);
+			this.logger.error('Failed to download attachment', { downloadUrl, error });
 
 			if (error.status === 401) {
 				throw new OAuthError('Authentication failed');

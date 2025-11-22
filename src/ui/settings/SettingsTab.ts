@@ -59,6 +59,9 @@ export class ConfluenceSettingsTab extends PluginSettingTab {
 		// Background Check Section
 		this.displayBackgroundCheckSection(containerEl);
 
+		// Logging Section
+		this.displayLoggingSection(containerEl);
+
 		// Connection Status
 		this.displayConnectionStatus(containerEl);
 	}
@@ -361,6 +364,36 @@ export class ConfluenceSettingsTab extends PluginSettingTab {
 				cls: 'setting-item-description'
 			});
 		}
+	}
+
+	private displayLoggingSection(containerEl: HTMLElement): void {
+		containerEl.createEl('h3', { text: '로깅 설정' });
+		containerEl.createEl('p', {
+			text: '로그 레벨을 설정하여 디버깅 정보를 조절할 수 있습니다.',
+			cls: 'setting-item-description'
+		});
+
+		// Log Level Dropdown
+		new Setting(containerEl)
+			.setName('로그 레벨')
+			.setDesc('로그 출력 수준 (DEBUG: 모든 로그, INFO: 일반 정보, WARN: 경고, ERROR: 오류만)')
+			.addDropdown(dropdown => dropdown
+				.addOption('DEBUG', 'DEBUG')
+				.addOption('INFO', 'INFO')
+				.addOption('WARN', 'WARN')
+				.addOption('ERROR', 'ERROR')
+				.setValue(this.plugin.settings.logLevel)
+				.onChange(async (value) => {
+					this.plugin.settings.logLevel = value as 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
+					await this.plugin.saveSettings();
+				})
+			);
+
+		// Info message
+		containerEl.createEl('p', {
+			text: 'ℹ️ 로그는 개발자 도구 콘솔에서 확인할 수 있습니다 (Ctrl+Shift+I 또는 Cmd+Option+I)',
+			cls: 'setting-item-description'
+		});
 	}
 
 	private displayConnectionStatus(containerEl: HTMLElement): void {

@@ -7,38 +7,47 @@ import { FileManager } from './src/utils/FileManager';
 import { CQLBuilder } from './src/utils/CQLBuilder';
 import { BackgroundChangeDetector } from './src/sync/BackgroundChangeDetector';
 import { SyncHistory } from './src/sync/SyncHistory';
+import { Logger } from './src/utils/Logger';
 
 export default class ConfluenceSyncPlugin extends Plugin {
 	settings: PluginSettings;
 	confluenceClient: ConfluenceClient | null = null;
+	private logger: Logger;
 
 	constructor(app: App, manifest: PluginManifest) {
 		super(app, manifest);
+		this.logger = new Logger('ConfluenceSyncPlugin', 'INFO');
 	}
 
 	async onload() {
-		console.log('Loading Confluence Sync plugin');
+		this.logger.info('Loading Confluence Sync plugin');
 
 		// Load settings
 		await this.loadSettings();
+
+		// Set logger level from settings
+		this.logger.setLogLevel(this.settings.logLevel);
+		this.logger.debug('Settings loaded', { logLevel: this.settings.logLevel });
 
 		// Add settings tab
 		this.addSettingTab(new ConfluenceSettingsTab(this.app, this));
 
 		// Initialize Confluence Client if OAuth is configured
 		if (this.settings.oauthConfig?.clientId && this.settings.oauthConfig?.clientSecret) {
-			this.confluenceClient = new ConfluenceClient(this.settings.oauthConfig);
+			this.confluenceClient = new ConfluenceClient(this.settings.oauthConfig, this.settings.logLevel);
+			this.logger.info('Confluence client initialized');
 
 			// Set token refresh callback to save updated tokens
 			this.confluenceClient.setTokenRefreshCallback(async (updatedTenant) => {
 				this.settings.tenants[0] = updatedTenant;
 				await this.saveSettings();
-				console.log('[Plugin] Token refreshed and saved to settings');
+				this.logger.debug('OAuth token refreshed and saved');
 			});
 
 			// Restore tenant state if saved
 			if (this.settings.tenants.length > 0 && this.settings.tenants[0].oauthToken) {
 				this.confluenceClient.restoreTenant(this.settings.tenants[0]);
+				this.logger.info('Tenant state restored', { url: this.settings.tenants[0].url });
 			}
 		}
 
@@ -62,14 +71,16 @@ export default class ConfluenceSyncPlugin extends Plugin {
 
 		// Background change detection on startup
 		if (this.settings.backgroundCheck && this.settings.backgroundCheckOnStartup) {
+			this.logger.info('Starting background change detection on startup');
 			this.runBackgroundCheck();
 		}
 
+		this.logger.info('Confluence Sync plugin loaded successfully');
 		new Notice('Confluence Sync plugin loaded successfully!');
 	}
 
 	onunload() {
-		console.log('Unloading Confluence Sync plugin');
+		this.logger.info('Unloading Confluence Sync plugin');
 	}
 
 	async loadSettings() {
@@ -86,13 +97,13 @@ export default class ConfluenceSyncPlugin extends Plugin {
 	private async runBackgroundCheck(): Promise<void> {
 		// Check if Confluence client is initialized and connected
 		if (!this.confluenceClient || !this.confluenceClient.isConnected()) {
-			console.log('[ConfluenceSyncPlugin] Background check skipped - not connected');
+			this.logger.debug('Background check skipped - not connected');
 			return;
 		}
 
 		// Check if notifications are enabled
 		if (!this.settings.showNotifications) {
-			console.log('[ConfluenceSyncPlugin] Background check skipped - notifications disabled');
+			this.logger.debug('Background check skipped - notifications disabled');
 			return;
 		}
 
@@ -101,18 +112,22 @@ export default class ConfluenceSyncPlugin extends Plugin {
 			const backgroundDetector = new BackgroundChangeDetector(
 				this.confluenceClient,
 				syncHistory,
-				this.settings.filters
+				this.settings.filters,
+				this.settings.logLevel
 			);
 
 			const changedCount = await backgroundDetector.checkForChanges();
 
 			// Show notification with action buttons if changes detected
 			if (changedCount > 0) {
+				this.logger.info('Background check found changes', { changedCount });
 				this.showChangeNotification(changedCount);
+			} else {
+				this.logger.debug('Background check completed - no changes');
 			}
 		} catch (error) {
 			// Silent failure - don't bother user
-			console.log('[ConfluenceSyncPlugin] Background check failed:', error);
+			this.logger.warn('Background check failed', error);
 		}
 	}
 
@@ -157,12 +172,14 @@ export default class ConfluenceSyncPlugin extends Plugin {
 	private async syncConfluencePages(): Promise<void> {
 		// Check if Confluence client is initialized
 		if (!this.confluenceClient) {
+			this.logger.warn('Sync attempted without Confluence client');
 			new Notice('⚠️ Confluence OAuth 설정이 필요합니다. 설정 탭에서 먼저 연결하세요.');
 			return;
 		}
 
 		// Check if connected
 		if (!this.confluenceClient.isConnected()) {
+			this.logger.warn('Sync attempted without connection');
 			new Notice('⚠️ Confluence에 연결되지 않았습니다. 설정 탭에서 먼저 연결하세요.');
 			return;
 		}
@@ -172,6 +189,8 @@ export default class ConfluenceSyncPlugin extends Plugin {
 			new Notice('🔄 Confluence 동기화를 시작합니다...');
 		}
 
+		this.logger.info('Starting Confluence sync');
+
 		try {
 			// Build CQL query from filters
 			const cqlBuilder = new CQLBuilder();
@@ -180,13 +199,14 @@ export default class ConfluenceSyncPlugin extends Plugin {
 			if (this.settings.filters?.enabled) {
 				const isValid = cqlBuilder.validateFilters(this.settings.filters);
 				if (!isValid) {
+					this.logger.warn('Invalid filter settings');
 					new Notice('⚠️ 필터 설정이 유효하지 않습니다. 설정을 확인해주세요.');
 					return;
 				}
 			}
 
 			const cqlQuery = cqlBuilder.buildSearchQuery(this.settings.filters);
-			console.log('[ConfluenceSyncPlugin] CQL Query:', cqlQuery);
+			this.logger.debug('CQL Query built', { cqlQuery });
 
 			// Create FileManager and SyncEngine
 			const fileManager = new FileManager(this.app.vault);
@@ -196,11 +216,22 @@ export default class ConfluenceSyncPlugin extends Plugin {
 				fileManager,
 				this.settings.syncPath,
 				this.settings.forceFullSync,
-				cqlQuery
+				cqlQuery,
+				this.settings.logLevel
 			);
 
 			// Execute sync
 			const result = await syncEngine.syncAll();
+
+			// Log results
+			this.logger.info('Sync completed', {
+				success: result.success,
+				totalPages: result.totalPages,
+				updatedPages: result.updatedPages,
+				skippedPages: result.skippedPages,
+				successCount: result.successCount,
+				failureCount: result.failureCount
+			});
 
 			// Show completion notification
 			if (this.settings.showNotifications) {
@@ -211,7 +242,7 @@ export default class ConfluenceSyncPlugin extends Plugin {
 				}
 			}
 		} catch (error) {
-			console.error('[ConfluenceSyncPlugin] Sync error:', error);
+			this.logger.error('Sync failed', error);
 			new Notice(`❌ 동기화 오류: ${error instanceof Error ? error.message : 'Unknown error'}`);
 		}
 	}

@@ -1,5 +1,6 @@
 import { TenantConfig, OAuthConfig } from '../api/ConfluenceClient';
 import { SyncFilters } from './filters';
+import { LogLevel } from '../utils/Logger';
 
 export interface PluginSettings {
 	tenants: TenantConfig[];
@@ -11,6 +12,7 @@ export interface PluginSettings {
 	filters?: SyncFilters;
 	backgroundCheck: boolean;
 	backgroundCheckOnStartup: boolean;
+	logLevel: LogLevel;
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
@@ -35,5 +37,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 		rootPageIds: []
 	},
 	backgroundCheck: true,
-	backgroundCheckOnStartup: true
+	backgroundCheckOnStartup: true,
+	logLevel: 'INFO'
 };
